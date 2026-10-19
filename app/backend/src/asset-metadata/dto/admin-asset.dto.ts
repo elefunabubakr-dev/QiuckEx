@@ -16,7 +16,7 @@ export class AdminVerifyAssetDto {
 
   @ApiPropertyOptional({
     description: "Asset issuer public key (null for native XLM)",
-    example: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    example: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPPPRE34K4KZVN",
   })
   @IsOptional()
   @IsString()

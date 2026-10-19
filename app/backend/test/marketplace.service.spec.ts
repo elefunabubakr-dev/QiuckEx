@@ -260,4 +260,172 @@ describe("MarketplaceService", () => {
       ).resolves.toBeDefined();
     });
   });
+
+  describe("acceptBid", () => {
+    const validTxHash =
+      "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0";
+    let horizonMock: {
+      getTransactionByHash: jest.Mock;
+      getTransactionOperations: jest.Mock;
+    };
+
+    beforeEach(async () => {
+      supabaseMock.getBidById = jest.fn().mockResolvedValue(mockBids[0]);
+      supabaseMock.isMarketplacePaymentTxUsed = jest.fn().mockResolvedValue(false);
+      supabaseMock.acceptBid = jest.fn().mockResolvedValue(undefined);
+
+      horizonMock = {
+        getTransactionByHash: jest.fn().mockResolvedValue({
+          id: validTxHash,
+          hash: validTxHash,
+          successful: true,
+          source_account: mockBids[0].bidder_public_key,
+        }),
+        getTransactionOperations: jest.fn().mockResolvedValue([
+          {
+            type: "payment",
+            transaction_successful: true,
+            from: mockBids[0].bidder_public_key,
+            to: mockListing.seller_public_key,
+            amount: "120.0000000",
+            asset_type: "native",
+          },
+        ]),
+      };
+
+      const { HorizonService } = await import(
+        "../src/transactions/horizon.service"
+      );
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          MarketplaceService,
+          {
+            provide: SupabaseService,
+            useValue: supabaseMock as jest.Mocked<SupabaseService>,
+          },
+          {
+            provide: UsernamesService,
+            useValue: usernamesMock as jest.Mocked<UsernamesService>,
+          },
+          {
+            provide: HorizonService,
+            useValue: horizonMock,
+          },
+        ],
+      }).compile();
+
+      service = module.get<MarketplaceService>(MarketplaceService);
+    });
+
+    it("rejects acceptBid when paymentTxHash is missing or invalid and does not call supabase.acceptBid", async () => {
+      await expect(
+        service.acceptBid(
+          mockListing.id,
+          mockBids[0].id,
+          mockListing.seller_public_key,
+        ),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.PAYMENT_REQUIRED,
+      });
+
+      await expect(
+        service.acceptBid(
+          mockListing.id,
+          mockBids[0].id,
+          mockListing.seller_public_key,
+          "not-a-valid-hash",
+        ),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.PAYMENT_REQUIRED,
+      });
+
+      expect(supabaseMock.acceptBid).not.toHaveBeenCalled();
+    });
+
+    it("rejects acceptBid when transaction is missing or failed on-chain and leaves bid pending", async () => {
+      horizonMock.getTransactionByHash.mockResolvedValueOnce(null);
+
+      await expect(
+        service.acceptBid(
+          mockListing.id,
+          mockBids[0].id,
+          mockListing.seller_public_key,
+          validTxHash,
+        ),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.PAYMENT_NOT_VERIFIED,
+      });
+
+      horizonMock.getTransactionByHash.mockResolvedValueOnce({
+        id: validTxHash,
+        hash: validTxHash,
+        successful: false,
+      });
+
+      await expect(
+        service.acceptBid(
+          mockListing.id,
+          mockBids[0].id,
+          mockListing.seller_public_key,
+          validTxHash,
+        ),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.PAYMENT_NOT_VERIFIED,
+      });
+
+      expect(supabaseMock.acceptBid).not.toHaveBeenCalled();
+    });
+
+    it("rejects acceptBid when on-chain payment amount, sender, recipient, or asset does not match bid", async () => {
+      horizonMock.getTransactionOperations.mockResolvedValueOnce([
+        {
+          type: "payment",
+          transaction_successful: true,
+          from: mockBids[0].bidder_public_key,
+          to: mockListing.seller_public_key,
+          amount: "50.0000000",
+          asset_type: "native",
+        },
+      ]);
+
+      await expect(
+        service.acceptBid(
+          mockListing.id,
+          mockBids[0].id,
+          mockListing.seller_public_key,
+          validTxHash,
+        ),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.PAYMENT_MISMATCH,
+      });
+
+      expect(supabaseMock.acceptBid).not.toHaveBeenCalled();
+    });
+
+    it("succeeds and calls supabase.acceptBid with verified payment proof when on-chain payment is verified", async () => {
+      await service.acceptBid(
+        mockListing.id,
+        mockBids[0].id,
+        mockListing.seller_public_key,
+        validTxHash.toUpperCase(),
+      );
+
+      expect(horizonMock.getTransactionByHash).toHaveBeenCalledWith(validTxHash);
+      expect(horizonMock.getTransactionOperations).toHaveBeenCalledWith(
+        validTxHash,
+      );
+      expect(supabaseMock.acceptBid).toHaveBeenCalledWith(
+        mockListing.id,
+        mockBids[0].id,
+        mockListing.seller_public_key,
+        {
+          paymentTxHash: validTxHash,
+          verifiedAmount: 120,
+          verifiedPayer: mockBids[0].bidder_public_key,
+          verifiedRecipient: mockListing.seller_public_key,
+        },
+      );
+    });
+  });
 });

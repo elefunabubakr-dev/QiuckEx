@@ -418,15 +418,39 @@ export class ReconciliationService {
       // Get expected totals from database (paid payments)
       const dbPayments = await this.supabase.fetchPaidPayments();
       const expectedCount = dbPayments.length;
-      const expectedTotalAmount = dbPayments.reduce(
-        (sum, p) => sum + BigInt(p.amount),
-        0n,
-      ).toString();
+      const expectedTotalAmount = dbPayments
+        .reduce((sum, payment) => sum + this.amountToStroops(payment.amount), 0n)
+        .toString();
 
-      // Get observed totals from on-chain (this is a simplified version)
-      // In production, you would query Horizon for all transactions in a time range
-      const observedCount = expectedCount; // Placeholder - would be from Horizon
-      const observedTotalAmount = expectedTotalAmount; // Placeholder - would be from Horizon
+      let observedCount = 0;
+      let observedTotal = 0n;
+      for (const payment of dbPayments) {
+        const response = await this.fetchPaymentOperations(
+          payment.stellar_tx_hash,
+        );
+        if (!response) {
+          continue;
+        }
+        const paymentOperations = response.records.filter(
+          (operation) =>
+            operation.transaction_successful &&
+            [
+              'payment',
+              'path_payment_strict_receive',
+              'path_payment_strict_send',
+            ].includes(operation.type),
+        );
+
+        if (paymentOperations.length > 0) {
+          observedCount++;
+          for (const operation of paymentOperations) {
+            if ('amount' in operation) {
+              observedTotal += this.amountToStroops(operation.amount);
+            }
+          }
+        }
+      }
+      const observedTotalAmount = observedTotal.toString();
 
       const countDiscrepancy = Math.abs(expectedCount - observedCount);
       const amountDiscrepancy = (
@@ -469,6 +493,42 @@ export class ReconciliationService {
       );
       return undefined;
     }
+  }
+
+  private async fetchPaymentOperations(txHash: string) {
+    const startTime = Date.now();
+    try {
+      return await this.server
+        .operations()
+        .forTransaction(txHash)
+        .call();
+    } catch (error) {
+      const horizonError = error as { response?: { status?: number } };
+      if (horizonError.response?.status === 404) {
+        return null;
+      }
+      const errorType =
+        error instanceof Error ? error.constructor.name : 'UnknownError';
+      this.metrics.recordError('horizon', errorType);
+      throw error;
+    } finally {
+      this.metrics.recordExternalCall(
+        'horizon',
+        'getTransactionOperations',
+        (Date.now() - startTime) / 1000,
+      );
+    }
+  }
+
+  private amountToStroops(amount: string): bigint {
+    const match = /^(\d+)(?:\.(\d{1,7}))?$/.exec(amount);
+    if (!match) {
+      throw new Error(`Invalid payment amount: ${amount}`);
+    }
+
+    const whole = BigInt(match[1]);
+    const fractional = BigInt((match[2] ?? '').padEnd(7, '0'));
+    return whole * 10_000_000n + fractional;
   }
 
   /**

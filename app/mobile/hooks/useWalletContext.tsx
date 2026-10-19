@@ -1,3 +1,4 @@
+import { clearNotificationWalletSigner } from "../services/notification-wallet-auth";
 import React, {
   createContext,
   useCallback,
@@ -34,41 +35,68 @@ import { useEnvironment } from "../contexts/EnvironmentContext";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const DEMO_PUBLIC_KEY =
+/**
+ * Testnet public key used by the demo wallet. This is the ONLY hardcoded
+ * public key in the codebase and is only ever returned for the `demo`
+ * wallet type — non-demo wallets are never silently handed this key.
+ */
+export const DEMO_PUBLIC_KEY =
   "GAMOSFOKEYHFDGMXIEFEYBUYK3ZMFYN3PFLOTBRXFGBFGRKBKLQSLGLP";
 
 /** Available wallet options shown in the wallet picker UI */
-export const SUPPORTED_WALLETS: Array<{
+export const SUPPORTED_WALLETS: {
   type: WalletType;
   label: string;
   description: string;
-}> = [
+  /**
+   * Whether this wallet type is actually functional right now. Non-demo
+   * wallets are listed so users can see what's coming, but are disabled in
+   * the picker until their real connection/signing SDK is wired up. This
+   * prevents the previous behavior of silently faking a connection by
+   * handing every wallet type the same hardcoded demo public key.
+   */
+  available: boolean;
+}[] = [
   {
     type: "freighter",
     label: "Freighter",
     description: "Browser extension by Stellar Development Foundation",
+    available: false,
   },
   {
     type: "lobstr",
     label: "LOBSTR",
     description: "Mobile-first Stellar wallet",
+    available: false,
   },
   {
     type: "xbull",
     label: "xBull",
     description: "Multi-network wallet with Stellar support",
+    available: false,
   },
   {
     type: "albedo",
     label: "Albedo",
     description: "Session-based signing — no extension needed",
+    available: false,
   },
   {
     type: "demo",
     label: "Demo Wallet",
     description: "Testnet demo account for quick exploration",
+    available: true,
   },
 ];
+
+/**
+ * Returns true when a wallet type has a real, functional connection/signing
+ * path today. Used by both the wallet picker (to enable/disable options) and
+ * `connect()` (to guard against silently faking a connection).
+ */
+export function isWalletAvailable(type: WalletType): boolean {
+  return SUPPORTED_WALLETS.find((w) => w.type === type)?.available ?? false;
+}
 
 // ── Error helpers ────────────────────────────────────────────────────────────
 
@@ -78,6 +106,27 @@ function walletError(
   recoverable = true,
 ): WalletError {
   return { code, message, recoverable };
+}
+
+// ── Real wallet-SDK integration point ────────────────────────────────────────
+//
+// This is the single place where each non-demo wallet's real connection/signing
+// SDK is invoked. It is intentionally a thin, explicit seam: until a provider's
+// SDK is actually wired up here, `connect()` refuses to hand back a public key
+// rather than silently returning the demo key. When a real integration lands
+// for a wallet type, flip `available` to `true` in SUPPORTED_WALLETS and
+// implement the case below to return the wallet's real public key (and throw
+// real SDK error surfaces such as `wallet_locked` / `wrong_network` /
+// `signature_rejected`).
+async function connectWithWalletSDK(
+  walletType: WalletType,
+  _network: StellarNetwork,
+): Promise<{ publicKey: string }> {
+  throw walletError(
+    "wallet_not_supported",
+    `${SUPPORTED_WALLETS.find((w) => w.type === walletType)?.label ?? walletType} integration is coming soon. Use the Demo Wallet to explore the app for now.`,
+    true,
+  );
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -121,6 +170,31 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
         );
 
         if (session && !invalidReason.invalid) {
+          // Legacy sessions created by the old simulated connect flow stored
+          // DEMO_PUBLIC_KEY against non-demo wallet types. Don't keep those
+          // "connected" — the wallet type isn't actually functional, so clear
+          // the session and drop back to the disconnected state (preserving
+          // the last wallet type for the picker, which clearly marks
+          // unavailable wallets as "coming soon").
+          if (
+            session.walletType &&
+            session.walletType !== "demo" &&
+            !isWalletAvailable(session.walletType)
+          ) {
+            clearNotificationWalletSigner();
+            await clearWalletSession();
+            await clearSensitiveSessionToken();
+            const lastType = await getLastWalletType();
+            if (!cancelled) {
+              setWallet({
+                ...INITIAL_STATE,
+                isRestoring: false,
+                walletType: lastType ?? undefined,
+              });
+            }
+            return;
+          }
+
           setWallet({
             connected: true,
             publicKey: session.publicKey,
@@ -133,6 +207,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
 
           await touchSession();
         } else if (session && invalidReason.invalid) {
+          clearNotificationWalletSigner();
           await clearWalletSession();
           await clearSensitiveSessionToken();
 
@@ -203,31 +278,16 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         const selectedNetwork = network ?? wallet.network ?? "testnet";
 
-        if (walletType !== "demo") {
-          if (Math.random() < 0.05) {
-            throw walletError(
-              "wallet_locked",
-              "Your wallet is locked. Please unlock it and try again.",
-            );
-          }
-
-          if (Math.random() < 0.05) {
-            throw walletError(
-              "wrong_network",
-              `Your wallet is not on ${selectedNetwork}. Switch your wallet network and try again.`,
-            );
-          }
-
-          if (Math.random() < 0.15) {
-            throw walletError(
-              "signature_rejected",
-              "You rejected the signature request. Please try again and approve the transaction.",
-            );
-          }
-        }
-
+        // Only the demo wallet returns a hardcoded (testnet) public key.
+        // Every other wallet type MUST go through its real connection/signing
+        // SDK. Until a provider's SDK is wired up (see `connectWithWalletSDK`),
+        // non-demo wallets throw `wallet_not_supported` rather than silently
+        // faking a connection with DEMO_PUBLIC_KEY.
         const publicKey =
-          walletType === "demo" ? DEMO_PUBLIC_KEY : DEMO_PUBLIC_KEY;
+          walletType === "demo"
+            ? DEMO_PUBLIC_KEY
+            : (await connectWithWalletSDK(walletType, selectedNetwork))
+                .publicKey;
 
         const now = Date.now();
 
@@ -303,6 +363,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     }
 
+    clearNotificationWalletSigner();
     await clearWalletSession();
     await clearSensitiveSessionToken();
 

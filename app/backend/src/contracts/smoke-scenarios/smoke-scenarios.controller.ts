@@ -8,6 +8,7 @@ import {
   SmokeScenariosValidationResultDto,
 } from './dto/smoke-scenarios.dto';
 import { SmokeScenariosService } from './smoke-scenarios.service';
+import { RateLimitTier } from '../../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('contracts')
 @ApiHeader({
@@ -21,6 +22,7 @@ export class SmokeScenariosController {
   constructor(private readonly smokeScenarios: SmokeScenariosService) {}
 
   @Post('validate')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({

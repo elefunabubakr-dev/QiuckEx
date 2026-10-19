@@ -988,6 +988,7 @@ name = "quickex"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "reference_hook",
  "serde",
  "serde_json",
  "soroban-sdk",
@@ -1094,6 +1095,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "reference_hook"
+version = "0.1.0"
+dependencies = [
+ "quickex",
+ "soroban-sdk",
 ]
 
 [[package]]

@@ -217,11 +217,20 @@ describe("CustomThrottlerGuard", () => {
   it("builds tracker from user id when available", async () => {
     const tracker = await guard.getTracker({
       user: { id: "user-42" },
-      headers: { "x-api-key": "client-key" },
       ip: "10.0.0.7",
     });
 
     expect(tracker).toBe("user_id:user-42");
+  });
+
+  it("prioritizes API key over user id for tracking", async () => {
+    const tracker = await guard.getTracker({
+      user: { id: "user-42" },
+      headers: { "x-api-key": "client-key" },
+      ip: "10.0.0.7",
+    });
+
+    expect(tracker).toBe("api_key:client-key");
   });
 
   it("falls back to ip tracker when identity headers are absent", async () => {

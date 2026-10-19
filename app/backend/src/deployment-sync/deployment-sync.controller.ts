@@ -23,7 +23,7 @@ import { validate } from 'class-validator';
 import { AppConfigService } from '../config/app-config.service';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
-import { RateLimitGroupTag } from '../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 import { mapValidationErrors } from '../common/utils/validation-error.mapper';
 import { BranchDeploymentService } from './deployment-sync.service';
 import { SyncBranchDeploymentDto } from './dto/sync-branch-deployment.dto';
@@ -48,6 +48,7 @@ export class BranchDeploymentController {
    * HMAC-SHA256 webhook signature (`X-Hub-Signature-256`).
    */
   @Post('deployments/webhook')
+  @RateLimitTier("mutation")
   @RateLimitGroupTag('webhooks')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -101,6 +102,7 @@ export class BranchDeploymentController {
    * admin-scoped API key.
    */
   @Post('admin/deployments/sync')
+  @RateLimitTier("mutation")
   @UseGuards(ApiKeyGuard)
   @RequireScopes('admin')
   @RateLimitGroupTag('authenticated')
@@ -122,6 +124,7 @@ export class BranchDeploymentController {
   }
 
   @Get('admin/deployments/branch/:branchName')
+  @RateLimitTier("public-read")
   @UseGuards(ApiKeyGuard)
   @RequireScopes('admin')
   @RateLimitGroupTag('authenticated')
@@ -145,6 +148,7 @@ export class BranchDeploymentController {
   }
 
   @Get('admin/deployments/pr/:prNumber')
+  @RateLimitTier("public-read")
   @UseGuards(ApiKeyGuard)
   @RequireScopes('admin')
   @RateLimitGroupTag('authenticated')

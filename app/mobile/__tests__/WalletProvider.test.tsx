@@ -2,14 +2,33 @@
  * Integration tests for the WalletContext / WalletProvider.
  *
  * Covers: connect, disconnect, switchAccount, switchNetwork, session restore,
- * edge-case error handling (wallet_locked, wrong_network, signature_rejected).
+ * and the real error surface for non-demo wallet types (`wallet_not_supported`).
+ *
+ * The previous version of this suite injected fake `wallet_locked` /
+ * `wrong_network` / `signature_rejected` errors via `Math.random()` and
+ * asserted that every non-demo wallet connected to a hardcoded demo key.
+ * That behavior is gone: non-demo wallets now go through `connectWithWalletSDK`
+ * and, until their real SDK is wired up, surface a `wallet_not_supported`
+ * error instead of silently faking a connection. Only the demo wallet
+ * returns `DEMO_PUBLIC_KEY`.
  */
 import React from "react";
 import renderer, { act } from "react-test-renderer";
 import { Text } from "react-native";
 
-import { WalletProvider, useWalletContext } from "../hooks/useWalletContext";
+import {
+  DEMO_PUBLIC_KEY,
+  SUPPORTED_WALLETS,
+  WalletProvider,
+  isWalletAvailable,
+  useWalletContext,
+} from "../hooks/useWalletContext";
 import type { WalletContextValue, WalletType } from "../types/wallet";
+
+// The jest-expo preset pays a one-time module-load cost on the first render
+// of each suite (expo/native module stubs). Give the suite generous headroom
+// so the first test isn't falsely flagged as timing out.
+jest.setTimeout(30000);
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -144,6 +163,21 @@ describe("WalletProvider", () => {
     sessionMod.getLastWalletType.mockResolvedValue(null);
   });
 
+  describe("wallet availability metadata", () => {
+    it("marks only the demo wallet as available today", () => {
+      const available = SUPPORTED_WALLETS.filter((w) => w.available);
+      expect(available.map((w) => w.type)).toEqual(["demo"]);
+    });
+
+    it("isWalletAvailable returns true only for demo", () => {
+      expect(isWalletAvailable("demo")).toBe(true);
+      expect(isWalletAvailable("freighter")).toBe(false);
+      expect(isWalletAvailable("lobstr")).toBe(false);
+      expect(isWalletAvailable("xbull")).toBe(false);
+      expect(isWalletAvailable("albedo")).toBe(false);
+    });
+  });
+
   describe("initial state / session restore", () => {
     it("starts restoring and then settles to disconnected", async () => {
       const tree = renderWithProvider();
@@ -159,12 +193,12 @@ describe("WalletProvider", () => {
       tree.unmount();
     });
 
-    it("restores a valid saved session on mount", async () => {
+    it("restores a valid saved demo session on mount", async () => {
       const sessionMod = jest.requireMock("../services/wallet-session");
       const mockSession = {
         publicKey: "GARESTOREDEMOCKEY000000000000000000000000000",
         network: "testnet",
-        walletType: "freighter",
+        walletType: "demo",
         connectedAt: Date.now(),
         lastConfirmedAt: new Date().toISOString(),
       };
@@ -177,8 +211,34 @@ describe("WalletProvider", () => {
 
       expect(capturedWallet!.wallet.connected).toBe(true);
       expect(capturedWallet!.wallet.publicKey).toBe(mockSession.publicKey);
-      expect(capturedWallet!.wallet.walletType).toBe("freighter");
+      expect(capturedWallet!.wallet.walletType).toBe("demo");
       expect(capturedWallet!.wallet.network).toBe("testnet");
+
+      tree.unmount();
+    });
+
+    it("does not restore a session for a non-demo wallet type that is not functional yet", async () => {
+      // A legacy session created by the old simulated connect flow stored the
+      // demo public key against a non-demo walletType. Such a session must not
+      // be silently kept "connected" — it should be cleared.
+      const sessionMod = jest.requireMock("../services/wallet-session");
+      const legacyFreighterSession = {
+        publicKey: DEMO_PUBLIC_KEY,
+        network: "testnet",
+        walletType: "freighter",
+        connectedAt: Date.now(),
+        lastConfirmedAt: new Date().toISOString(),
+      };
+      sessionMod.getWalletSession.mockResolvedValue(legacyFreighterSession);
+      sessionMod.isSessionRestorable.mockReturnValue(true);
+
+      const tree = renderWithProvider();
+
+      await act(async () => {});
+
+      expect(sessionMod.clearWalletSession).toHaveBeenCalled();
+      expect(capturedWallet!.wallet.connected).toBe(false);
+      expect(capturedWallet!.wallet.publicKey).toBeUndefined();
 
       tree.unmount();
     });
@@ -211,7 +271,7 @@ describe("WalletProvider", () => {
       const mismatchSession = {
         publicKey: "GADIFFENVKEY00000000000000000000000000000000000",
         network: "testnet",
-        walletType: "freighter",
+        walletType: "demo",
         connectedAt: Date.now(),
         lastConfirmedAt: new Date().toISOString(),
         environmentId: "staging",
@@ -237,7 +297,7 @@ describe("WalletProvider", () => {
       const mismatchSession = {
         publicKey: "GAENVSWITCHKEY00000000000000000000000000000000",
         network: "mainnet",
-        walletType: "lobstr",
+        walletType: "demo",
         connectedAt: Date.now(),
         lastConfirmedAt: new Date().toISOString(),
         environmentId: "branch-preview",
@@ -272,7 +332,7 @@ describe("WalletProvider", () => {
   });
 
   describe("connect", () => {
-    it("connects with the demo wallet type", async () => {
+    it("connects with the demo wallet type and returns DEMO_PUBLIC_KEY", async () => {
       const tree = renderWithProvider();
 
       await act(async () => {});
@@ -283,7 +343,7 @@ describe("WalletProvider", () => {
 
       expect(capturedWallet!.wallet.connected).toBe(true);
       expect(capturedWallet!.wallet.walletType).toBe("demo");
-      expect(capturedWallet!.wallet.publicKey).toBeTruthy();
+      expect(capturedWallet!.wallet.publicKey).toBe(DEMO_PUBLIC_KEY);
       expect(capturedWallet!.wallet.error).toBeUndefined();
 
       tree.unmount();
@@ -302,6 +362,7 @@ describe("WalletProvider", () => {
       expect(sessionMod.saveWalletSession).toHaveBeenCalledTimes(1);
       const savedSession = sessionMod.saveWalletSession.mock.calls[0][0];
       expect(savedSession.walletType).toBe("demo");
+      expect(savedSession.publicKey).toBe(DEMO_PUBLIC_KEY);
       expect(savedSession.network).toBe("testnet");
 
       tree.unmount();
@@ -314,7 +375,7 @@ describe("WalletProvider", () => {
       await act(async () => {});
 
       await act(async () => {
-        await capturedWallet!.connect("freighter", "testnet");
+        await capturedWallet!.connect("demo", "testnet");
       });
 
       expect(sessionMod.saveWalletSession).toHaveBeenCalled();
@@ -326,8 +387,40 @@ describe("WalletProvider", () => {
       tree.unmount();
     });
 
-    it("sets error on wallet_locked edge case", async () => {
-      const randomSpy = jest.spyOn(Math, "random").mockReturnValue(0.01);
+    it.each([
+      ["freighter"],
+      ["lobstr"],
+      ["xbull"],
+      ["albedo"],
+    ] as WalletType[][])(
+      "surfaces wallet_not_supported (not a faked demo key) for %s",
+      async (walletType) => {
+        const sessionMod = jest.requireMock("../services/wallet-session");
+        const tree = renderWithProvider();
+
+        await act(async () => {});
+
+        await act(async () => {
+          await capturedWallet!.connect(walletType, "testnet");
+        });
+
+        expect(capturedWallet!.wallet.connected).toBe(false);
+        expect(capturedWallet!.wallet.publicKey).toBeUndefined();
+        expect(capturedWallet!.wallet.error?.code).toBe("wallet_not_supported");
+        expect(capturedWallet!.wallet.error?.recoverable).toBe(true);
+        // Crucially: a non-demo connect must never persist a session with the
+        // demo public key.
+        expect(sessionMod.saveWalletSession).not.toHaveBeenCalled();
+
+        tree.unmount();
+      },
+    );
+
+    it("does not inject Math.random-based fake errors", async () => {
+      // Guard against regressing the old behavior: the connect path must not
+      // reach for Math.random() to fabricate wallet_locked / wrong_network /
+      // signature_rejected for non-demo wallets.
+      const randomSpy = jest.spyOn(Math, "random");
 
       const tree = renderWithProvider();
 
@@ -337,53 +430,8 @@ describe("WalletProvider", () => {
         await capturedWallet!.connect("freighter", "testnet");
       });
 
-      expect(capturedWallet!.wallet.connected).toBe(false);
-      expect(capturedWallet!.wallet.error?.code).toBe("wallet_locked");
-      expect(capturedWallet!.wallet.error?.recoverable).toBe(true);
-
-      randomSpy.mockRestore();
-      tree.unmount();
-    });
-
-    it("sets error on wrong_network edge case", async () => {
-      const randomSpy = jest
-        .spyOn(Math, "random")
-        .mockReturnValueOnce(0.5) // not locked
-        .mockReturnValueOnce(0.01); // wrong network
-
-      const tree = renderWithProvider();
-
-      await act(async () => {});
-
-      await act(async () => {
-        await capturedWallet!.connect("freighter", "mainnet");
-      });
-
-      expect(capturedWallet!.wallet.connected).toBe(false);
-      expect(capturedWallet!.wallet.error?.code).toBe("wrong_network");
-
-      randomSpy.mockRestore();
-      tree.unmount();
-    });
-
-    it("sets error on signature_rejected edge case", async () => {
-      // rand < 0.05 → not locked, rand < 0.10 → not wrong network,
-      // rand < 0.15 → signature rejected
-      const randomSpy = jest
-        .spyOn(Math, "random")
-        .mockReturnValue(0.12);
-
-      const tree = renderWithProvider();
-
-      await act(async () => {});
-
-      await act(async () => {
-        await capturedWallet!.connect("lobstr", "testnet");
-      });
-
-      expect(capturedWallet!.wallet.connected).toBe(false);
-      expect(capturedWallet!.wallet.error?.code).toBe("signature_rejected");
-      expect(capturedWallet!.wallet.error?.recoverable).toBe(true);
+      expect(randomSpy).not.toHaveBeenCalled();
+      expect(capturedWallet!.wallet.error?.code).toBe("wallet_not_supported");
 
       randomSpy.mockRestore();
       tree.unmount();
@@ -422,7 +470,7 @@ describe("WalletProvider", () => {
       await act(async () => {});
 
       await act(async () => {
-        await capturedWallet!.connect("freighter", "mainnet");
+        await capturedWallet!.connect("demo", "mainnet");
       });
 
       await act(async () => {
@@ -504,7 +552,7 @@ describe("WalletProvider", () => {
 
       // Connect wallet on mainnet (mismatch with expected testnet)
       await act(async () => {
-        await capturedWallet!.connect("freighter", "mainnet");
+        await capturedWallet!.connect("demo", "mainnet");
       });
 
       expect(capturedWallet!.wallet.connected).toBe(true);
@@ -544,8 +592,8 @@ describe("WalletProvider", () => {
 
   describe("clearError", () => {
     it("clears the current error", async () => {
-      const randomSpy = jest.spyOn(Math, "random").mockReturnValue(0.01);
-
+      // A non-demo connect surfaces a real error (wallet_not_supported)
+      // instead of a Math.random()-injected one.
       const tree = renderWithProvider();
 
       await act(async () => {});
@@ -555,6 +603,7 @@ describe("WalletProvider", () => {
       });
 
       expect(capturedWallet!.wallet.error).toBeDefined();
+      expect(capturedWallet!.wallet.error?.code).toBe("wallet_not_supported");
 
       act(() => {
         capturedWallet!.clearError();
@@ -562,7 +611,6 @@ describe("WalletProvider", () => {
 
       expect(capturedWallet!.wallet.error).toBeUndefined();
 
-      randomSpy.mockRestore();
       tree.unmount();
     });
   });

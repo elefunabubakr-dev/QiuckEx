@@ -5,6 +5,7 @@ import { ApiKeyGuard } from "../auth/guards/api-key.guard";
 import { RequireScopes } from "../auth/decorators/require-scopes.decorator";
 import { RcValidationService } from "./rc-validation.service";
 import { RcValidationReportDto } from "./dto/rc-report.dto";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 @ApiTags("Release Candidate Validation")
 @Controller("admin/rc-validation")
@@ -13,6 +14,7 @@ export class RcValidationController {
   constructor(private readonly rcValidationService: RcValidationService) {}
 
   @Get("report")
+  @RateLimitTier("export")
   @RequireScopes("admin")
   @ApiOperation({
     summary: "Generate a release-candidate validation report",

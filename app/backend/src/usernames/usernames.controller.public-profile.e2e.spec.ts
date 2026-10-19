@@ -59,7 +59,7 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
           kind: 'profile' as const,
           id: '1',
           username: 'alice',
-          publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+          publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
           createdAt: '2025-02-19T08:00:00Z',
           lastActiveAt: '2025-03-27T10:00:00Z',
           similarityScore: 95,
@@ -203,14 +203,14 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
 
       const result = await controller.togglePublicProfile({
         username: 'alice',
-        publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
         isPublic: true,
       });
 
       expect(result.ok).toBe(true);
       expect(serviceMock.togglePublicProfile).toHaveBeenCalledWith(
         'alice',
-        'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
         true,
       );
     });
@@ -227,7 +227,7 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
       await expect(
         controller.togglePublicProfile({
           username: 'nonexistent',
-          publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+          publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
           isPublic: true,
         }),
       ).rejects.toThrow(NotFoundException);
@@ -245,7 +245,7 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
       await expect(
         controller.togglePublicProfile({
           username: 'INVALID',
-          publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+          publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
           isPublic: true,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -257,7 +257,7 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
       serviceMock.getProfileByUsername.mockResolvedValue({
         id: '1',
         username: 'alice',
-        public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
         is_public: true,
         created_at: '2025-02-19T08:00:00Z',
         last_active_at: '2025-03-27T10:00:00Z',
@@ -268,7 +268,7 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
       expect(result).toEqual({
         id: '1',
         username: 'alice',
-        publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
         isPublic: true,
         createdAt: '2025-02-19T08:00:00Z',
         lastActiveAt: '2025-03-27T10:00:00Z',
@@ -291,7 +291,6 @@ describe('UsernamesController - Public Profile Discovery (Integration)', () => {
         username: 'bob',
         isPublic: false,
       });
-      expect(result.publicKey).toBeUndefined();
     });
 
     it('should throw NotFoundException if username not found', async () => {

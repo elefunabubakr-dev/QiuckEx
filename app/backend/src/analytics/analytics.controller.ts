@@ -2,6 +2,7 @@ import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 import { AnalyticsService } from './analytics.service';
 import {
   AnalyticsQueryDto,
@@ -18,6 +19,7 @@ export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get('report')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Fetch dashboard analytics report (summary, asset distribution, and time-series)',
   })
@@ -33,6 +35,7 @@ export class AnalyticsController {
   }
 
   @Get('time-series')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Fetch only time-series analytics for chart rendering (daily/weekly/monthly)',
   })
@@ -53,6 +56,7 @@ export class AnalyticsController {
   }
 
   @Get('assets')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Fetch asset distribution for payment history',
   })
@@ -72,6 +76,7 @@ export class AnalyticsController {
   }
 
   @Get('export')
+  @RateLimitTier('export')
   @ApiOperation({
     summary: 'Export analytics report in CSV or PDF for tax/accounting',
   })
@@ -115,6 +120,7 @@ export class AnalyticsController {
   }
 
   @Get('dashboard-summary')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Fetch compact dashboard summary metrics for header cards',
   })

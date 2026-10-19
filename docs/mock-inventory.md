@@ -157,11 +157,10 @@ This inventory **explicitly excludes** the following, which are managed under ex
 
 #### frontend/src/app/settings/page.tsx
 
-- **Line:** 27
-- **Snippet:** `// TODO: Call API to save profile`
-- **Description:** The `handleSave` function for user profile editing only logs to console and has a TODO noting the absence of any actual PUT/PATCH API call to persist profile changes (avatar, bio, social handles, display name).
+- **Status:** Resolved in #1151
+- **Description:** `handleSave` previously only logged to console behind a `// TODO: Call API to save profile`, so no profile customization was ever persisted. The page now resolves the connected wallet's usernames via `GET /username?publicKey=`, loads the selected profile with `GET /profile?username=&publicKey=`, and saves with `PUT /profile`. The hardcoded `username: "john_doe"` default is gone.
 - **Classification:** unintended technical debt
-- **Action:** To be removed in Wave 8 (create/link issue)
+- **Action:** Closed by #1151. Residual gap: the backend still has no wallet authentication, so `GET`/`PUT /profile` verify ownership from a client-supplied `publicKey` (the same model as `POST /username/toggle-public`). Real wallet auth remains open work.
 
 ---
 
@@ -246,16 +245,6 @@ This inventory **explicitly excludes** the following, which are managed under ex
 - **Description:** Refund-state receipt variant showing a completed refund step with a synthetic 0xtxrefund… txHash.
 - **Classification:** intentional scaffolding
 - **Action:** N/A
-
----
-
-#### mobile/src/screens/NotificationScreen.tsx
-
-- **Line:** 26
-- **Snippet:** `const MOCK_NOTIFICATIONS: Notification[] = [`
-- **Description:** Three mock in-app notifications — a USDC payment received from Alice, an XLM payment sent to Bob, and a system welcome message. Used as the initial state for the notifications FlatList and not replaced by any API call.
-- **Classification:** unintended technical debt
-- **Action:** To be removed in Wave 8 (create/link issue)
 
 ---
 

@@ -7,7 +7,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../auth/guards/api-key.guard';
-import { RateLimitGroupTag } from '../../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../../auth/decorators/rate-limit-group.decorator';
 import {
   ContractViewsService,
   type ContractMetadataView,
@@ -30,6 +30,7 @@ export class ContractViewsController {
   constructor(private readonly views: ContractViewsService) {}
 
   @Get('fee-config')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Current fee configuration',
     description:
@@ -42,6 +43,7 @@ export class ContractViewsController {
   }
 
   @Get('pause-state')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Contract pause state',
     description:
@@ -54,6 +56,7 @@ export class ContractViewsController {
   }
 
   @Get('metadata')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Contract metadata',
     description:
@@ -66,6 +69,7 @@ export class ContractViewsController {
   }
 
   @Get('escrow/:id')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Escrow summary by ID',
     description:
@@ -80,6 +84,7 @@ export class ContractViewsController {
   }
 
   @Get('link/:identifier')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Payment link summary by slug or ID',
     description:

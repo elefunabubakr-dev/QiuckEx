@@ -25,6 +25,7 @@ import {
   RecurringStatus,
   RecurringPaymentExecutionDto,
 } from './dto/recurring-payment.dto';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('recurring-payments')
 @ApiHeader({
@@ -43,6 +44,7 @@ export class RecurringPaymentsController {
   // ---------------------------------------------------------------------------
 
   @Post()
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create a new recurring payment link',
@@ -68,6 +70,7 @@ export class RecurringPaymentsController {
   }
 
   @Get(':id')
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get recurring payment link by ID',
@@ -94,6 +97,7 @@ export class RecurringPaymentsController {
   }
 
   @Get()
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'List recurring payment links',
@@ -120,6 +124,7 @@ export class RecurringPaymentsController {
   }
 
   @Patch(':id')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update recurring payment link',
@@ -155,6 +160,7 @@ export class RecurringPaymentsController {
   // ---------------------------------------------------------------------------
 
   @Post(':id/cancel')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Cancel recurring payment link',
@@ -185,6 +191,7 @@ export class RecurringPaymentsController {
   }
 
   @Post(':id/pause')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Pause recurring payment link',
@@ -215,6 +222,7 @@ export class RecurringPaymentsController {
   }
 
   @Post(':id/resume')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Resume recurring payment link',
@@ -249,6 +257,7 @@ export class RecurringPaymentsController {
   // ---------------------------------------------------------------------------
 
   @Get(':id/executions')
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get execution history',

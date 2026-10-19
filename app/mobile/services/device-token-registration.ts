@@ -1,12 +1,13 @@
+import {
+  createNotificationProofHeaders,
+  NotificationWalletAuthError,
+} from "./notification-wallet-auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { Platform } from "react-native";
 
 import { API_URL } from "../src/config/build";
-import {
-  captureUnhandledError,
-  captureNativeCrash,
-} from "./crash-monitoring";
+import { captureUnhandledError, captureNativeCrash } from "./crash-monitoring";
 import {
   enqueueAction,
   processOfflineQueue,
@@ -43,7 +44,7 @@ export const DEVICE_TOKEN_REGISTER_ACTION = "deviceToken.register";
 /**
  * Action type used to retry a failed device-token deregistration (e.g. on
  * sign-out). Carries the `publicKey` so the backend can clear its row even
- * if the user is no longer authenticated.
+ * after the wallet reconnects and supplies a fresh ownership proof.
  */
 export const DEVICE_TOKEN_DEREGISTER_ACTION = "deviceToken.deregister";
 
@@ -129,7 +130,10 @@ export async function setStoredDeviceTokenForTest(
   record: DeviceTokenRecord,
 ): Promise<void> {
   await writeJson(STORAGE_KEYS.token, record);
-  await AsyncStorage.setItem(STORAGE_KEYS.installationId, record.installationId);
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.installationId,
+    record.installationId,
+  );
   if (record.publicKey) {
     await AsyncStorage.setItem(STORAGE_KEYS.publicKey, record.publicKey);
   }
@@ -387,21 +391,29 @@ export async function postDeviceTokenToBackend(args: {
   const url = `${getApiBaseUrl()}/notifications/preferences/${encodeURIComponent(
     args.publicKey,
   )}`;
+  const body = { channel: "push", pushToken: args.pushToken, enabled: true };
+  const proof = await createNotificationProofHeaders({
+    url,
+    publicKey: args.publicKey,
+    method: "PUT",
+    body,
+  });
   const response = await fetch(url, {
     method: "PUT",
     headers: {
+      ...proof,
       "Content-Type": "application/json",
       Accept: "application/json",
       "X-Device-Installation-Id": args.installationId,
     },
-    body: JSON.stringify({
-      channel: "push",
-      pushToken: args.pushToken,
-      enabled: true,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403)
+      throw new NotificationWalletAuthError(
+        "Notification preference authentication was rejected",
+      );
     let detail = `HTTP ${response.status}`;
     try {
       const body = await response.json();
@@ -427,15 +439,26 @@ export async function postDeregisterToBackend(args: {
   const url = `${getApiBaseUrl()}/notifications/preferences/${encodeURIComponent(
     args.publicKey,
   )}/push`;
+  const proof = await createNotificationProofHeaders({
+    url,
+    publicKey: args.publicKey,
+    method: "DELETE",
+    channel: "push",
+  });
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
+      ...proof,
       Accept: "application/json",
       "X-Device-Installation-Id": args.installationId,
     },
   });
 
   if (!response.ok && response.status !== 404) {
+    if (response.status === 401 || response.status === 403)
+      throw new NotificationWalletAuthError(
+        "Notification preference authentication was rejected",
+      );
     throw new Error(
       `Device token deregistration failed: HTTP ${response.status}`,
     );
@@ -464,7 +487,9 @@ export function registerDeviceTokenQueueHandlers(): void {
         | { publicKey: string; pushToken: string; installationId: string }
         | undefined;
       if (!data?.publicKey || !data?.pushToken || !data?.installationId) {
-        throw new Error("deviceToken.register requires publicKey/pushToken/installationId");
+        throw new Error(
+          "deviceToken.register requires publicKey/pushToken/installationId",
+        );
       }
       await postDeviceTokenToBackend(data);
     },
@@ -480,7 +505,9 @@ export function registerDeviceTokenQueueHandlers(): void {
         | { publicKey: string; installationId: string }
         | undefined;
       if (!data?.publicKey || !data?.installationId) {
-        throw new Error("deviceToken.deregister requires publicKey/installationId");
+        throw new Error(
+          "deviceToken.deregister requires publicKey/installationId",
+        );
       }
       await postDeregisterToBackend(data);
     },
@@ -586,6 +613,8 @@ async function runRegisterDeviceToken(args: {
     });
     return { status: "registered", token, alreadyRegistered: false };
   } catch (error) {
+    if (error instanceof NotificationWalletAuthError)
+      return { status: "failed", reason: error.message };
     const reason =
       error instanceof Error
         ? error.message
@@ -624,6 +653,7 @@ export async function registerWithBackoff(args: {
       await postDeviceTokenToBackend(args);
       return;
     } catch (error) {
+      if (error instanceof NotificationWalletAuthError) throw error;
       lastError =
         error instanceof Error ? error : new Error("Unknown registration error");
       if (attempt === REGISTRATION_MAX_ATTEMPTS - 1) break;
@@ -654,7 +684,10 @@ async function persistTokenRecord(args: {
   await writeJson(STORAGE_KEYS.token, record);
   await AsyncStorage.setItem(STORAGE_KEYS.installationId, args.installationId);
   await AsyncStorage.setItem(STORAGE_KEYS.publicKey, args.publicKey);
-  await AsyncStorage.setItem(STORAGE_KEYS.registeredAt, String(record.registeredAt));
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.registeredAt,
+    String(record.registeredAt),
+  );
 }
 
 async function reportRegistrationFailure(
@@ -662,9 +695,7 @@ async function reportRegistrationFailure(
   kind: "request-failed" | "permission-revoked",
 ): Promise<void> {
   try {
-    const error = new Error(
-      `Device token registration (${kind}): ${reason}`,
-    );
+    const error = new Error(`Device token registration (${kind}): ${reason}`);
     if (kind === "request-failed") {
       await captureNativeCrash(error);
     } else {
@@ -718,6 +749,10 @@ export async function deregisterDeviceToken(args: {
     await clearStoredDeviceToken();
     return { status: "deregistered" };
   } catch (error) {
+    if (error instanceof NotificationWalletAuthError) {
+      await clearStoredDeviceToken();
+      return { status: "failed", reason: error.message };
+    }
     const reason =
       error instanceof Error ? error.message : "Unknown deregister error";
     await clearStoredDeviceToken();
@@ -742,11 +777,9 @@ export async function deregisterDeviceToken(args: {
  */
 export async function handlePermissionRevoked(): Promise<void> {
   await Promise.all(
-    [
-      STORAGE_KEYS.token,
-      STORAGE_KEYS.publicKey,
-      STORAGE_KEYS.registeredAt,
-    ].map((key) => AsyncStorage.removeItem(key)),
+    [STORAGE_KEYS.token, STORAGE_KEYS.publicKey, STORAGE_KEYS.registeredAt].map(
+      (key) => AsyncStorage.removeItem(key),
+    ),
   );
 }
 

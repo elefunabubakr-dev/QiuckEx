@@ -8,3 +8,4 @@ export interface QuickexClientOptions {
     fetch?: typeof globalThis.fetch;
 }
 export declare function createQuickexClient(options: QuickexClientOptions): import("openapi-fetch").Client<paths, `${string}/${string}`>;
+export { decryptRecipientEnvelopeClient, deriveSharedSecretHexClient, generateStealthViewKeyPairClient, type StealthEnvelope, type StealthViewKeyPair, } from "./stealth-privacy";

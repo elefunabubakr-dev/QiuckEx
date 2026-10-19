@@ -1,4 +1,5 @@
 import appJson from './app.json';
+import { execSync } from 'child_process';
 
 const defaultEnvironment = process.env.CI ? 'production' : 'dev';
 const appEnv = process.env.APP_ENV ?? defaultEnvironment;
@@ -6,6 +7,19 @@ const stellarNetwork = process.env.STELLAR_NETWORK ?? (appEnv === 'production' ?
 const buildNumber = process.env.BUILD_NUMBER ?? process.env.GITHUB_RUN_NUMBER ?? '1';
 const androidVersionCode = Number(process.env.ANDROID_VERSION_CODE ?? buildNumber);
 const buildTag = process.env.GIT_TAG ?? process.env.GITHUB_REF_NAME ?? '';
+
+// Capture commit SHA from CI (GITHUB_SHA) or local git (rev-parse HEAD)
+// Falls back to 'local-dev' for non-git environments
+let gitCommitSha = process.env.GITHUB_SHA;
+if (!gitCommitSha) {
+  try {
+    gitCommitSha = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
+  } catch (e) {
+    gitCommitSha = 'local-dev';
+  }
+}
+// Use short commit hash (first 7 characters) for display
+const gitCommitShort = gitCommitSha.length > 7 ? gitCommitSha.substring(0, 7) : gitCommitSha;
 
 function appName(env: string): string {
   switch (env) {
@@ -63,6 +77,7 @@ export default ({ config }: { config: any }) => ({
       stellarNetwork,
       buildNumber,
       buildTag,
+      gitCommit: gitCommitShort,
       appVersion: appJson.expo.version,
     },
     ios: {

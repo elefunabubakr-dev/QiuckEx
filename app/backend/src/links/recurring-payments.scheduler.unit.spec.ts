@@ -63,6 +63,7 @@ describe('RecurringPaymentsScheduler', () => {
   beforeEach(async () => {
     const mockSchedulerService = {
       getLinksDueForExecution: jest.fn(),
+      getUpcomingLinksForNotification: jest.fn(),
       pauseRecurringLink: jest.fn().mockResolvedValue({}),
       markPaymentFailure: jest.fn().mockResolvedValue(undefined),
       markPaymentSuccess: jest.fn().mockResolvedValue(undefined),
@@ -70,6 +71,8 @@ describe('RecurringPaymentsScheduler', () => {
 
     const mockRepository = {
       createExecution: jest.fn().mockResolvedValue(mockExecution),
+      findExecutionByLinkAndPeriod: jest.fn(),
+      markNotificationSent: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockPaymentProcessor = {};
@@ -82,7 +85,7 @@ describe('RecurringPaymentsScheduler', () => {
       enqueue: jest.fn().mockResolvedValue('job-1'),
     };
 
-    const mockUsernamesService = {
+    const mockUsernamesService: jest.Mocked<Pick<UsernamesService, 'getPublicProfile'>> = {
       getPublicProfile: jest.fn(),
     };
 
@@ -229,6 +232,102 @@ describe('RecurringPaymentsScheduler', () => {
           failureReason: expect.stringContaining('testuser'),
         }),
       );
+    });
+  });
+
+  describe('sendUpcomingPaymentNotifications', () => {
+    it('should query links due in ~24h and trigger exactly one notification', async () => {
+      const dueSoonLink: DbRecurringPaymentLink = {
+        ...mockLink,
+        id: 'link-due-soon',
+        next_execution_date: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
+      };
+
+      (schedulerService.getUpcomingLinksForNotification as jest.Mock).mockResolvedValue([dueSoonLink]);
+      (repository.findExecutionByLinkAndPeriod as jest.Mock).mockResolvedValue(null);
+      (repository.createExecution as jest.Mock).mockResolvedValue({
+        ...mockExecution,
+        id: 'exec-due-soon',
+        recurring_link_id: 'link-due-soon',
+        notification_sent: false,
+      });
+
+      await scheduler.sendUpcomingPaymentNotifications();
+
+      expect(schedulerService.getUpcomingLinksForNotification).toHaveBeenCalledWith(24);
+      expect(repository.findExecutionByLinkAndPeriod).toHaveBeenCalledWith('link-due-soon', 1);
+      expect(repository.createExecution).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recurringLinkId: 'link-due-soon',
+          periodNumber: 1,
+        }),
+      );
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'recurring.payment.due',
+        expect.objectContaining({
+          linkId: 'link-due-soon',
+          executionId: 'exec-due-soon',
+          username: dueSoonLink.username,
+          amount: dueSoonLink.amount,
+          asset: dueSoonLink.asset,
+        }),
+      );
+      expect(repository.markNotificationSent).toHaveBeenCalledWith('exec-due-soon');
+    });
+
+    it('should not send duplicate notifications on subsequent runs for the same execution', async () => {
+      const dueSoonLink: DbRecurringPaymentLink = {
+        ...mockLink,
+        id: 'link-due-soon',
+      };
+
+      const existingExecution: DbRecurringPaymentExecution = {
+        ...mockExecution,
+        id: 'exec-already-notified',
+        recurring_link_id: 'link-due-soon',
+        notification_sent: true,
+      };
+
+      (schedulerService.getUpcomingLinksForNotification as jest.Mock).mockResolvedValue([dueSoonLink]);
+      (repository.findExecutionByLinkAndPeriod as jest.Mock).mockResolvedValue(existingExecution);
+
+      await scheduler.sendUpcomingPaymentNotifications();
+
+      expect(repository.findExecutionByLinkAndPeriod).toHaveBeenCalledWith('link-due-soon', 1);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(repository.markNotificationSent).not.toHaveBeenCalled();
+    });
+
+    it('should continue processing remaining links if an error occurs on an individual link', async () => {
+      const link1: DbRecurringPaymentLink = { ...mockLink, id: 'link-1' };
+      const link2: DbRecurringPaymentLink = { ...mockLink, id: 'link-2' };
+
+      (schedulerService.getUpcomingLinksForNotification as jest.Mock).mockResolvedValue([link1, link2]);
+
+      // Make link1 fail in findExecutionByLinkAndPeriod
+      (repository.findExecutionByLinkAndPeriod as jest.Mock)
+        .mockRejectedValueOnce(new Error('DB failure for link-1'))
+        .mockResolvedValueOnce(null);
+
+      (repository.createExecution as jest.Mock).mockResolvedValue({
+        ...mockExecution,
+        id: 'exec-2',
+        recurring_link_id: 'link-2',
+        notification_sent: false,
+      });
+
+      await scheduler.sendUpcomingPaymentNotifications();
+
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'recurring.payment.due',
+        expect.objectContaining({
+          linkId: 'link-2',
+          executionId: 'exec-2',
+        }),
+      );
+      expect(repository.markNotificationSent).toHaveBeenCalledWith('exec-2');
     });
   });
 });

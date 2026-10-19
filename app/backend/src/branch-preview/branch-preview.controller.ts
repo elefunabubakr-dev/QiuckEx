@@ -31,7 +31,7 @@ interface AuthenticatedRequest extends Request {
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
 import { RequireAnyScope } from '../auth/decorators/require-any-scope.decorator';
-import { RateLimitGroupTag } from '../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 import { BranchPreviewService } from './branch-preview.service';
 import { BranchPreviewResponseDto } from './branch-preview.model';
 import {
@@ -54,6 +54,7 @@ export class BranchPreviewController {
 
   // Public endpoint to get preview environment for a branch
   @Get('preview/:branchName')
+  @RateLimitTier('public-read')
   @RateLimitGroupTag('public')
   @ApiOperation({
     summary: 'Get preview environment for a branch',
@@ -68,6 +69,7 @@ export class BranchPreviewController {
 
   // Admin endpoints
   @Post('admin/branch-previews')
+  @RateLimitTier('mutation')
   @RequireAnyScope('admin', 'branch_preview:owner', 'branch_preview:reviewer')
   @RateLimitGroupTag('authenticated')
   @HttpCode(HttpStatus.CREATED)
@@ -85,6 +87,7 @@ export class BranchPreviewController {
   }
 
   @Put('admin/branch-previews/:id')
+  @RateLimitTier('mutation')
   @RequireAnyScope('admin', 'branch_preview:owner', 'branch_preview:reviewer')
   @RateLimitGroupTag('authenticated')
   @ApiOperation({
@@ -103,6 +106,7 @@ export class BranchPreviewController {
   }
 
   @Delete('admin/branch-previews/:id')
+  @RateLimitTier('mutation')
   @RequireAnyScope('admin', 'branch_preview:owner', 'branch_preview:reviewer')
   @RateLimitGroupTag('authenticated')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -121,6 +125,7 @@ export class BranchPreviewController {
   }
 
   @Get('admin/branch-previews')
+  @RateLimitTier('public-read')
   @RequireAnyScope('admin', 'branch_preview:owner', 'branch_preview:reviewer')
   @RateLimitGroupTag('authenticated')
   @ApiOperation({
@@ -135,6 +140,7 @@ export class BranchPreviewController {
   }
 
   @Post('admin/branch-previews/:branchName/invalidate-cache')
+  @RateLimitTier('mutation')
   @RequireAnyScope('admin', 'branch_preview:owner', 'branch_preview:reviewer')
   @RateLimitGroupTag('authenticated')
   @HttpCode(HttpStatus.OK)
@@ -154,6 +160,7 @@ export class BranchPreviewController {
   }
 
   @Post('admin/branch-previews/cache/clear')
+  @RateLimitTier('mutation')
   @RequireScopes('admin')
   @RateLimitGroupTag('authenticated')
   @HttpCode(HttpStatus.OK)
@@ -170,6 +177,7 @@ export class BranchPreviewController {
 
   @Post('admin/branch-previews/cleanup-expired')
   @RequireScopes('admin')
+  @RateLimitTier('mutation')
   @RateLimitGroupTag('authenticated')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

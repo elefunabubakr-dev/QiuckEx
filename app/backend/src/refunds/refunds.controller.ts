@@ -30,6 +30,7 @@ import {
   CursorPaginationQueryDto,
   paginatedResponse,
 } from "../dto/pagination/pagination.dto";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 interface ApiKeyRequest extends Request {
   apiKey: { id: string };
@@ -48,6 +49,7 @@ export class RefundsController {
   constructor(private readonly refundsService: RefundsService) {}
 
   @Post("check-eligibility")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Check refund eligibility",
@@ -99,6 +101,7 @@ export class RefundsController {
   }
 
   @Post()
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard)
   @RequiresFlag("mainnet.refunds")
@@ -122,6 +125,7 @@ export class RefundsController {
   }
 
   @Post(":id/approve")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard)
   @RequiresFlag("mainnet.refunds")
@@ -139,6 +143,7 @@ export class RefundsController {
   }
 
   @Post(":id/reject")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard)
   @RequiresFlag("mainnet.refunds")
@@ -160,6 +165,7 @@ export class RefundsController {
   }
 
   @Get()
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "List all refund attempts" })
   @ApiQuery({
     name: "cursor",

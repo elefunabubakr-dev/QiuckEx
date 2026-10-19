@@ -21,6 +21,7 @@ import {
   ListSupportBundleReferencesQueryDto,
   SupportBundleReferenceResponseDto,
 } from './dto/support-bundle-reference.dto';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('Support Bundle References')
 @ApiHeader({
@@ -34,6 +35,7 @@ export class SupportBundleReferenceController {
   constructor(private readonly references: SupportBundleReferenceService) {}
 
   @Post()
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.CREATED)
   @RequireScopes('support:write')
   @ApiOperation({
@@ -53,6 +55,7 @@ export class SupportBundleReferenceController {
   }
 
   @Get()
+  @RateLimitTier("public-read")
   @RequireScopes('support:read')
   @ApiOperation({
     summary: 'Look up support bundle references attached to an issue report or receipt',
@@ -66,6 +69,7 @@ export class SupportBundleReferenceController {
   }
 
   @Get(':id')
+  @RateLimitTier("public-read")
   @RequireScopes('support:read')
   @ApiOperation({ summary: 'Get a single support bundle reference by id' })
   @ApiResponse({ status: 200, type: SupportBundleReferenceResponseDto })
@@ -75,6 +79,7 @@ export class SupportBundleReferenceController {
   }
 
   @Post(':id/redact')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Manually redact a support bundle reference ahead of its expiry' })

@@ -4,6 +4,7 @@ import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
 import { ContractAllowlistService } from './contract-allowlist.service';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('contracts')
 @ApiHeader({
@@ -17,6 +18,7 @@ export class ContractAllowlistController {
   constructor(private readonly allowlist: ContractAllowlistService) {}
 
   @Get('allowlist')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({
     summary: 'Inspect the active contract method allowlist ruleset',

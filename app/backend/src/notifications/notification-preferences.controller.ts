@@ -1,5 +1,9 @@
 import {
   Controller,
+  BadRequestException,
+  Post,
+  Req,
+  UseGuards,
   Get,
   Put,
   Delete,
@@ -9,7 +13,17 @@ import {
   HttpStatus,
   Logger,
 } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from "@nestjs/swagger";
+import type { Request } from "express";
+import { WalletRequestAuthService } from "../auth/wallet-request-auth.service";
+import { WalletRequestGuard } from "../auth/guards/wallet-request.guard";
+import { NotificationWalletChallengeDto } from "./dto/notification-wallet-challenge.dto";
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiHeader,
+} from "@nestjs/swagger";
 
 import { NotificationPreferencesRepository } from "./notification-preferences.repository";
 import {
@@ -17,6 +31,7 @@ import {
   NotificationPreferenceResponseDto,
 } from "./dto/notification-preferences.dto";
 import type { NotificationChannel } from "./types/notification.types";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 /**
  * REST API for managing per-wallet notification preferences.
@@ -24,22 +39,76 @@ import type { NotificationChannel } from "./types/notification.types";
  * Routes are keyed by Stellar public key (the wallet address), which serves
  * as the user identity throughout the system.
  *
- * Note: In production you would add the ApiKeyGuard here. For now it is
- * intentionally left open so mobile clients can register preferences without
- * a separate auth flow. Add `@UseGuards(ApiKeyGuard)` when ready.
+ * Reads and writes require a single-use signature bound to the exact request.
  */
 @ApiTags("Notifications")
+@ApiHeader({
+  name: "X-Wallet-Public-Key",
+  description: "Signing Stellar G-address",
+})
+@ApiHeader({
+  name: "X-Wallet-Challenge",
+  description: "Single-use challenge identifier",
+})
+@ApiHeader({
+  name: "X-Wallet-Signature",
+  description: "Base64 Ed25519 signature of the challenge message",
+})
+@ApiResponse({
+  status: 401,
+  description: "Missing, invalid, expired, or replayed wallet proof",
+})
+@ApiResponse({
+  status: 403,
+  description: "Signing wallet does not own the requested preferences",
+})
 @Controller("notifications/preferences")
 export class NotificationPreferencesController {
   private readonly logger = new Logger(NotificationPreferencesController.name);
 
-  constructor(private readonly prefsRepo: NotificationPreferencesRepository) {}
+  constructor(
+    private readonly prefsRepo: NotificationPreferencesRepository,
+    private readonly proofs: WalletRequestAuthService,
+  ) {}
+
+  @Post(":publicKey/challenge")
+  @RateLimitTier("mutation")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Create a single-use wallet ownership challenge for a preference request",
+  })
+  createChallenge(
+    @Param("publicKey") publicKey: string,
+    @Body() dto: NotificationWalletChallengeDto,
+    @Req() request: Request,
+  ) {
+    if (dto.method === "DELETE" && !dto.channel)
+      throw new BadRequestException("DELETE requires a channel");
+    if (dto.method !== "DELETE" && dto.channel)
+      throw new BadRequestException("Only DELETE accepts a channel");
+    if (dto.method === "PUT" && !dto.body)
+      throw new BadRequestException("PUT requires the request body");
+    if (dto.method !== "PUT" && dto.body)
+      throw new BadRequestException("Only PUT accepts a body");
+    const path =
+      request.originalUrl.split("?")[0].replace(/\/challenge$/, "") +
+      (dto.channel ? `/${dto.channel}` : "");
+    return this.proofs.issue(
+      publicKey,
+      dto.method,
+      path,
+      dto.method === "PUT" ? dto.body : null,
+    );
+  }
 
   /**
    * GET /notifications/preferences/:publicKey
    * List all notification preferences for a wallet.
    */
   @Get(":publicKey")
+  @UseGuards(WalletRequestGuard)
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "List notification preferences for a wallet" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })
   @ApiResponse({ status: 200, type: [NotificationPreferenceResponseDto] })
@@ -56,6 +125,8 @@ export class NotificationPreferencesController {
    * Create or update a channel preference for a wallet.
    */
   @Put(":publicKey")
+  @UseGuards(WalletRequestGuard)
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Create or update a notification channel preference",
@@ -91,6 +162,8 @@ export class NotificationPreferencesController {
    * Opt-out of a specific notification channel (soft disable).
    */
   @Delete(":publicKey/:channel")
+  @UseGuards(WalletRequestGuard)
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Opt-out of a notification channel (soft disable)" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })

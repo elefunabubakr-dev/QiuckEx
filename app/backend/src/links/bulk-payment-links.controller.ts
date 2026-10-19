@@ -19,6 +19,7 @@ import {
   BulkPaymentLinkRequestDto,
   BulkPaymentLinkResponseDto,
 } from './dto/bulk-payment-link.dto';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 interface UploadedFile {
   originalname: string;
@@ -38,6 +39,7 @@ export class BulkPaymentLinksController {
   constructor(private readonly bulkPaymentLinksService: BulkPaymentLinksService) {}
 
   @Post('generate')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Generate bulk payment links (JSON)',
@@ -61,6 +63,7 @@ export class BulkPaymentLinksController {
   }
 
   @Post('generate/csv')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Generate bulk payment links from CSV',

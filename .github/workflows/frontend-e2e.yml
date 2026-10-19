@@ -53,12 +53,14 @@ jobs:
         working-directory: ./e2e
         run: npx playwright install --with-deps chromium
 
-      # Runs every spec under e2e/tests, including a11y-pay-flow.spec.ts
-      # (#766: axe-core audit of the generator and pay pages).
+      # Runs only the pay → receipt project. The FE-56 theme regression suite
+      # (e2e/tests/theme-regression.spec.ts) is hermetic — it mocks the backend
+      # and needs a locally-built app — so it runs in
+      # frontend-theme-regression.yml instead of against the preview env.
       - name: Run pay → receipt E2E
         if: steps.preview.outputs.configured == 'true'
         working-directory: ./e2e
-        run: npx playwright test
+        run: npx playwright test --project=pay-receipt
         env:
           BASE_URL: ${{ secrets.PREVIEW_BASE_URL }}
 

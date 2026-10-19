@@ -1,4 +1,5 @@
 import { Module, forwardRef } from "@nestjs/common";
+import { IdempotencyModule } from "../common/idempotency/idempotency.module";
 import { LinksController } from "./links.controller";
 import { LinksService } from "./links.service";
 import { BulkPaymentLinksController } from "./bulk-payment-links.controller";
@@ -57,6 +58,7 @@ import { UsernamesModule } from "../usernames/usernames.module";
     PaymentLinkService,
   ],
   imports: [
+    IdempotencyModule,
     SupabaseModule,
     StellarModule,
     ApiKeysModule,

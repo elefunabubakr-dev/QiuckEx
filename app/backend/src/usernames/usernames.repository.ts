@@ -59,6 +59,37 @@ export interface UsernameRow {
   created_at: string;
 }
 
+/**
+ * The editable presentation fields behind `GET`/`PUT /profile`.
+ *
+ * All six are nullable because the columns are nullable: `null` means "not
+ * configured" and is distinct from the empty string, which is not a meaningful
+ * value for any of them.
+ *
+ * `username` is intentionally absent. It is the row's identity, and rewriting it
+ * would cascade-delete `username_marketplace` rows (FK, ON DELETE CASCADE).
+ */
+export interface ProfileCustomization {
+  primary_color: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  twitter_handle: string | null;
+  discord_handle: string | null;
+  github_handle: string | null;
+}
+
+/**
+ * A profile as returned to the settings page: the identifying fields plus the
+ * editable presentation fields.
+ */
+export interface ProfileResult extends ProfileCustomization {
+  id: string;
+  username: string;
+  public_key: string;
+  created_at: string;
+  is_public: boolean;
+}
+
 export interface ListingPage {
   listings: MarketplaceListing[];
   next_cursor: string | null;
@@ -101,8 +132,28 @@ export interface UsernamesRepository {
   ): Promise<SearchProfileResult[]>;
   getFeaturedUsernames(limit?: number): Promise<FeaturedProfileResult[]>;
   getPublicProfile(username: string): Promise<SearchProfileResult | null>;
+  getPublicProfileForDisplay(username: string): Promise<ProfileResult | null>;
   togglePublicProfile(username: string, isPublic: boolean): Promise<void>;
   updateUsernameActivity(username: string): Promise<void>;
+
+  /**
+   * Load a profile together with its presentation fields, regardless of
+   * visibility. Callers must verify the requesting wallet owns the row; this
+   * method deliberately performs no ownership check of its own.
+   */
+  getProfileForOwner(username: string): Promise<ProfileResult | null>;
+
+  /**
+   * Persist the presentation fields for a profile row. Ownership is the
+   * caller's responsibility (see `getProfileForOwner`).
+   *
+   * Also refreshes `last_active_at`, matching `togglePublicProfile`, so a
+   * profile edit counts as activity.
+   */
+  updateProfileCustomization(
+    username: string,
+    customization: ProfileCustomization,
+  ): Promise<ProfileResult | null>;
 }
 
 export const USERNAMES_REPOSITORY = Symbol('USERNAMES_REPOSITORY');
@@ -181,11 +232,26 @@ export class SupabaseUsernamesRepository implements UsernamesRepository {
     return this.supabase.getPublicProfile(username);
   }
 
+  getPublicProfileForDisplay(username: string): Promise<ProfileResult | null> {
+    return this.supabase.getPublicProfileForDisplay(username);
+  }
+
   togglePublicProfile(username: string, isPublic: boolean): Promise<void> {
     return this.supabase.togglePublicProfile(username, isPublic);
   }
 
   updateUsernameActivity(username: string): Promise<void> {
     return this.supabase.updateUsernameActivity(username);
+  }
+
+  getProfileForOwner(username: string): Promise<ProfileResult | null> {
+    return this.supabase.getProfileForOwner(username);
+  }
+
+  updateProfileCustomization(
+    username: string,
+    customization: ProfileCustomization,
+  ): Promise<ProfileResult | null> {
+    return this.supabase.updateProfileCustomization(username, customization);
   }
 }

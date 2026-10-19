@@ -34,6 +34,15 @@ import {
 import { getOfflineQueue } from "../services/offline-queue";
 import * as crashMonitoring from "../services/crash-monitoring";
 
+jest.mock("../services/notification-wallet-auth", () => ({
+  ...jest.requireActual("../services/notification-wallet-auth"),
+  createNotificationProofHeaders: jest.fn(async () => ({
+    "X-Wallet-Public-Key": "GABC",
+    "X-Wallet-Challenge": "test-challenge",
+    "X-Wallet-Signature": "test-signature",
+  })),
+}));
+
 const mockCaptureUnhandledError =
   crashMonitoring.captureUnhandledError as jest.Mock;
 const mockCaptureNativeCrash =
@@ -106,11 +115,15 @@ jest.mock("expo-notifications", () => {
       canAskAgain: true,
       ios: { status: "granted", allowsBadge: true },
     })),
-    getExpoPushTokenAsync: jest.fn(async () => ({ data: mockCurrentPushToken })),
-    addPushTokenListener: jest.fn((listener: (mockValue: { data: string }) => void) => {
-      mockPushTokenListeners.add(listener);
-      return { remove: () => mockPushTokenListeners.delete(listener) };
-    }),
+    getExpoPushTokenAsync: jest.fn(async () => ({
+      data: mockCurrentPushToken,
+    })),
+    addPushTokenListener: jest.fn(
+      (listener: (mockValue: { data: string }) => void) => {
+        mockPushTokenListeners.add(listener);
+        return { remove: () => mockPushTokenListeners.delete(listener) };
+      },
+    ),
     __emitPushToken: (token: string) => {
       for (const listener of mockPushTokenListeners) listener({ data: token });
     },
@@ -585,5 +598,32 @@ describe("device-token registration: clearStoredDeviceToken", () => {
     await clearStoredDeviceToken();
     expect(await getStoredDeviceToken()).toBeNull();
     expect(await getStoredPublicKey()).toBeNull();
+  });
+});
+
+describe('device-token wallet authentication', () => {
+  it('forwards ownership headers with registration and deregistration', async () => {
+    await registerDeviceToken({ publicKey: 'GABC' });
+    await deregisterDeviceToken({ publicKey: 'GABC' });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of mockFetch.mock.calls) {
+      expect(init.headers).toMatchObject({ 'X-Wallet-Public-Key': 'GABC', 'X-Wallet-Challenge': 'test-challenge', 'X-Wallet-Signature': 'test-signature' });
+    }
+  });
+  it('does not retry or queue a rejected wallet signature', async () => {
+    const auth = jest.requireMock('../services/notification-wallet-auth');
+    auth.createNotificationProofHeaders.mockRejectedValueOnce(new auth.NotificationWalletAuthError('Wallet signature rejected'));
+    const result = await registerDeviceToken({ publicKey: 'GABC' });
+    expect(result).toEqual({ status: 'failed', reason: 'Wallet signature rejected' });
+    expect(await getOfflineQueue()).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(await getStoredDeviceToken()).toBeNull();
+  });
+  it('does not retry an HTTP authentication denial', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 401 });
+    const result = await registerDeviceToken({ publicKey: 'GABC' });
+    expect(result.status).toBe('failed');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(await getStoredDeviceToken()).toBeNull();
   });
 });

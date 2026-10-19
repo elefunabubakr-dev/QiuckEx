@@ -92,6 +92,57 @@ fn test_register_oracle_source_rejects_duplicate() {
 }
 
 #[test]
+fn test_register_oracle_source_enforces_max_cap() {
+    let (env, client, admin) = setup();
+
+    let mut registered_sources = soroban_sdk::Vec::new(&env);
+
+    // Register up to the cap (MAX_ORACLE_SOURCES) successfully.
+    for _ in 0..crate::oracle::MAX_ORACLE_SOURCES {
+        let source = Address::generate(&env);
+        client.register_oracle_source(&admin, &source);
+        registered_sources.push_back(source);
+    }
+
+    assert_eq!(
+        client.get_oracle_sources().len(),
+        crate::oracle::MAX_ORACLE_SOURCES
+    );
+
+    // The next registration must be rejected with OracleSourceLimitExceeded.
+    let excess_source = Address::generate(&env);
+    let result = client.try_register_oracle_source(&admin, &excess_source);
+    assert_eq!(result, Err(Ok(QuickexError::OracleSourceLimitExceeded)));
+
+    // Duplicate check takes precedence: registering an existing source still returns OracleSourceAlreadyRegistered.
+    let existing = registered_sources.get(0).unwrap();
+    let dup_result = client.try_register_oracle_source(&admin, &existing);
+    assert_eq!(
+        dup_result,
+        Err(Ok(QuickexError::OracleSourceAlreadyRegistered))
+    );
+
+    // Unregistering one source opens up a slot.
+    client.unregister_oracle_source(&admin, &existing);
+    assert_eq!(
+        client.get_oracle_sources().len(),
+        crate::oracle::MAX_ORACLE_SOURCES - 1
+    );
+
+    // Now registering the new source succeeds.
+    client.register_oracle_source(&admin, &excess_source);
+    assert_eq!(
+        client.get_oracle_sources().len(),
+        crate::oracle::MAX_ORACLE_SOURCES
+    );
+
+    // Trying to add another one is rejected again.
+    let another_source = Address::generate(&env);
+    let result2 = client.try_register_oracle_source(&admin, &another_source);
+    assert_eq!(result2, Err(Ok(QuickexError::OracleSourceLimitExceeded)));
+}
+
+#[test]
 fn test_register_oracle_source_rejects_non_admin() {
     let (env, client, _admin) = setup();
     let non_admin = Address::generate(&env);

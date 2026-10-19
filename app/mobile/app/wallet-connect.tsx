@@ -17,7 +17,7 @@ import { useNotifications } from "../components/notifications/NotificationContex
 import { useNetworkStatus } from "../hooks/use-network-status";
 import { useSecurity } from "../hooks/use-security";
 import { useOnboarding } from "../hooks/useOnboarding";
-import { SUPPORTED_WALLETS, useWalletContext } from "../hooks/useWalletContext";
+import { SUPPORTED_WALLETS, isWalletAvailable, useWalletContext } from "../hooks/useWalletContext";
 import { useTheme } from "../src/theme/ThemeContext";
 import type {
     StellarNetwork,
@@ -62,6 +62,10 @@ const ERROR_BANNER: Record<
   wallet_not_found: {
     icon: "search-outline",
     title: "Wallet Not Found",
+  },
+  wallet_not_supported: {
+    icon: "time-outline",
+    title: "Coming Soon",
   },
 };
 
@@ -109,14 +113,27 @@ export default function WalletConnectScreen() {
   // Auto-select the last-used wallet type once wallet context is hydrated
   useEffect(() => {
     if (!wallet.isRestoring && wallet.walletType && !selectedWallet) {
-      setSelectedWallet(wallet.walletType);
+      // Only pre-select the last wallet type if it's actually functional
+      // today; otherwise fall back to the demo wallet so the user isn't
+      // pointed at a disabled "coming soon" option.
+      setSelectedWallet(
+        isWalletAvailable(wallet.walletType) ? wallet.walletType : "demo",
+      );
     }
   }, [wallet.isRestoring, wallet.walletType, selectedWallet]);
 
   // ── Handlers ────────────────────────────────────────────────────────────
 
   const handleConnect = async () => {
-    const walletType = isDemoMode ? "demo" : (selectedWallet ?? "demo");
+    // Never attempt to connect a wallet type that isn't actually functional
+    // today. The picker disables these options, but this guards the deep
+    // link / programmatic paths too so connect() can never silently fall
+    // back to a faked (demo) key for a non-demo wallet.
+    const walletType = isDemoMode
+      ? "demo"
+      : selectedWallet && isWalletAvailable(selectedWallet)
+        ? selectedWallet
+        : "demo";
     setIsConnecting(true);
     clearError();
 
@@ -464,51 +481,86 @@ export default function WalletConnectScreen() {
                   >
                     Select a wallet provider
                   </Text>
-                  {SUPPORTED_WALLETS.map((w) => (
-                    <Pressable
-                      key={w.type}
-                      style={[
-                        styles.walletOption,
-                        {
-                          backgroundColor:
-                            selectedWallet === w.type
-                              ? theme.chipActiveBg
-                              : theme.background,
-                          borderColor:
-                            selectedWallet === w.type
-                              ? theme.buttonPrimaryBg
-                              : theme.border,
-                        },
-                      ]}
-                      onPress={() => setSelectedWallet(w.type)}
-                    >
-                      <View style={styles.walletOptionCopy}>
-                        <Text
-                          style={[
-                            styles.walletOptionLabel,
-                            { color: theme.textPrimary },
-                          ]}
-                        >
-                          {w.label}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.walletOptionDesc,
-                            { color: theme.textMuted },
-                          ]}
-                        >
-                          {w.description}
-                        </Text>
-                      </View>
-                      {selectedWallet === w.type ? (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={22}
-                          color={theme.buttonPrimaryBg}
-                        />
-                      ) : null}
-                    </Pressable>
-                  ))}
+                  {SUPPORTED_WALLETS.map((w) => {
+                    const available = isWalletAvailable(w.type);
+                    return (
+                      <Pressable
+                        key={w.type}
+                        style={[
+                          styles.walletOption,
+                          {
+                            backgroundColor:
+                              selectedWallet === w.type
+                                ? theme.chipActiveBg
+                                : theme.background,
+                            borderColor:
+                              selectedWallet === w.type
+                                ? theme.buttonPrimaryBg
+                                : theme.border,
+                          },
+                          !available ? styles.walletOptionDisabled : null,
+                        ]}
+                        onPress={
+                          available ? () => setSelectedWallet(w.type) : undefined
+                        }
+                        disabled={!available}
+                      >
+                        <View style={styles.walletOptionCopy}>
+                          <View style={styles.walletOptionLabelRow}>
+                            <Text
+                              style={[
+                                styles.walletOptionLabel,
+                                { color: theme.textPrimary },
+                              ]}
+                            >
+                              {w.label}
+                            </Text>
+                            {!available ? (
+                              <View
+                                style={[
+                                  styles.comingSoonBadge,
+                                  {
+                                    backgroundColor: theme.status.infoBg,
+                                    borderColor: theme.status.info,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.comingSoonBadgeText,
+                                    { color: theme.status.info },
+                                  ]}
+                                >
+                                  Coming soon
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          <Text
+                            style={[
+                              styles.walletOptionDesc,
+                              { color: theme.textMuted },
+                            ]}
+                          >
+                            {w.description}
+                          </Text>
+                        </View>
+                        {available && selectedWallet === w.type ? (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={22}
+                            color={theme.buttonPrimaryBg}
+                          />
+                        ) : !available ? (
+                          <Ionicons
+                            name="lock-closed-outline"
+                            size={20}
+                            color={theme.textMuted}
+                          />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
                 </View>
               ) : null}
 
@@ -518,7 +570,11 @@ export default function WalletConnectScreen() {
                   { backgroundColor: theme.buttonPrimaryBg },
                   isConnecting ? styles.buttonDisabled : null,
                 ]}
-                disabled={isConnecting || !isConnected}
+                disabled={
+                  isConnecting ||
+                  !isConnected ||
+                  (selectedWallet !== null && !isWalletAvailable(selectedWallet))
+                }
                 onPress={() => {
                   void handleConnect();
                 }}
@@ -776,9 +832,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
   },
+  walletOptionDisabled: {
+    opacity: 0.55,
+  },
   walletOptionCopy: {
     flex: 1,
     gap: 2,
+  },
+  walletOptionLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
   },
   walletOptionLabel: {
     fontSize: 15,
@@ -787,6 +852,18 @@ const styles = StyleSheet.create({
   walletOptionDesc: {
     fontSize: 12,
     lineHeight: 16,
+  },
+  comingSoonBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  comingSoonBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
   },
   primaryButton: {
     paddingVertical: 16,

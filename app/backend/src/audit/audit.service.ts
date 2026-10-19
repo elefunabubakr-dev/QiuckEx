@@ -1,7 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditLog, QueryAuditLogsDto } from './audit.model';
 import { randomUUID } from 'crypto';
+import { isPrivacyDebugPath } from '../privacy/privacy-debug.guard';
 import { SupabaseService } from '../supabase/supabase.service';
+
+const EXCLUDED_AUDIT_ACTIONS = new Set([
+  'privacy.derive-shared-secret',
+  'privacy.decrypt-recipient',
+  'privacy.derive_shared_secret',
+  'privacy.decrypt_recipient',
+]);
+
+const SENSITIVE_AUDIT_KEYS = new Set([
+  'privatekey',
+  'private_key',
+  'privatekeypem',
+  'private_key_pem',
+  'recipientviewprivatekeypem',
+  'recipient_view_private_key_pem',
+  'secretkey',
+  'secret_key',
+  'stellar_secret_key',
+]);
 
 @Injectable()
 export class AuditService {
@@ -17,12 +37,23 @@ export class AuditService {
     metadata?: Record<string, unknown>,
     requestId?: string,
   ): Promise<void> {
+    // #1215: Exclude stealth debug derive/decrypt operations from audit capture
+    if (
+      EXCLUDED_AUDIT_ACTIONS.has(action.toLowerCase()) ||
+      isPrivacyDebugPath(action) ||
+      isPrivacyDebugPath(target)
+    ) {
+      return;
+    }
+
+    const sanitizedMetadata = this.sanitizeMetadata(metadata);
+
     const entry: AuditLog = {
       id: randomUUID(),
       actor,
       action,
       target,
-      metadata,
+      metadata: sanitizedMetadata,
       requestId,
       createdAt: new Date(),
     };
@@ -49,6 +80,34 @@ export class AuditService {
         `Audit store unavailable, keeping in-memory copy only: ${(error as Error).message}`,
       );
     }
+  }
+
+  private sanitizeMetadata(
+    metadata?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    if (!metadata || typeof metadata !== 'object') {
+      return metadata;
+    }
+
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(metadata)) {
+      const lowerKey = key.toLowerCase();
+      if (SENSITIVE_AUDIT_KEYS.has(lowerKey)) {
+        sanitized[key] = '[REDACTED_PRIVATE_KEY]';
+      } else if (
+        typeof value === 'string' &&
+        /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value)
+      ) {
+        sanitized[key] = '[REDACTED_PRIVATE_KEY]';
+      } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+        sanitized[key] = this.sanitizeMetadata(
+          value as Record<string, unknown>,
+        );
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
   }
 
   async query(dto: QueryAuditLogsDto) {

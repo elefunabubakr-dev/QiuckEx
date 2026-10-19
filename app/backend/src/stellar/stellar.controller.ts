@@ -20,7 +20,7 @@ import {
 } from "@nestjs/swagger";
 
 import { ApiKeyGuard } from "../auth/guards/api-key.guard";
-import { RateLimitGroupTag } from "../auth/decorators/rate-limit-group.decorator";
+import { RateLimitGroupTag, RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 import { AssetMetadataService } from "../asset-metadata/asset-metadata.service";
 import { AssetListResponseDto } from "../asset-metadata/dto/asset-metadata.dto";
 import { AppConfigService } from "../config/app-config.service";
@@ -57,6 +57,7 @@ export class StellarController {
   ) {}
 
   @Get("verified-assets")
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "List verified assets for payment links and path swaps",
     description:
@@ -72,6 +73,7 @@ export class StellarController {
   }
 
   @Post("path-preview")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
@@ -84,6 +86,7 @@ export class StellarController {
   }
 
   @Post("path-preview/strict-send")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
@@ -96,6 +99,7 @@ export class StellarController {
   }
 
   @Post("soroban-preflight")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard)
   @RequiresFlag(TESTNET_CONTRACT_WRITES_FLAG)
@@ -128,6 +132,7 @@ export class StellarController {
   }
 
   @Post("quote")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
@@ -150,6 +155,7 @@ export class StellarController {
   }
 
   @Get("quote/:quoteId")
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "Retrieve a quote by ID",
     description:

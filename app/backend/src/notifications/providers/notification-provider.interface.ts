@@ -207,7 +207,17 @@ export class WebhookProvider implements INotificationProvider {
     const startTime = Date.now();
     const webhookPayload = this.buildWebhookPayload(payload);
     const body = JSON.stringify(webhookPayload);
-    const signature = this.signPayload(body, webhookPayload.sentAt, preference.webhookSecret);
+    const signature = WebhookProvider.signPayload(
+      body,
+      webhookPayload.sentAt,
+      preference.webhookSecret,
+    );
+
+    if (!signature) {
+      this.logger.warn(
+        "Webhook secret not configured - payload will not be signed",
+      );
+    }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -289,11 +299,21 @@ export class WebhookProvider implements INotificationProvider {
     };
   }
 
-  private signPayload(body: string, timestamp: string, secret?: string): string {
+  /**
+   * Canonicalize and sign a webhook request body.
+   *
+   * Exposed as a static so every outbound webhook path (the notifications
+   * provider here, and the job-queue WebhookDeliveryHandler) produces byte
+   * identical signatures. `verifySignature` / `verifySignatureDetailed` below
+   * are the matching verification side and must stay in lockstep with this.
+   *
+   * @param body Raw JSON request body that will actually be sent
+   * @param timestamp ISO-8601 send timestamp, also sent as X-QuickEx-Timestamp
+   * @param secret Shared webhook secret
+   * @returns `sha256=<hex digest>`, or an empty string when no secret is set
+   */
+  static signPayload(body: string, timestamp: string, secret?: string): string {
     if (!secret) {
-      this.logger.warn(
-        "Webhook secret not configured - payload will not be signed",
-      );
       return "";
     }
 

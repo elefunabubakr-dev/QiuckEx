@@ -11,6 +11,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { AppConfigService } from '../config';
+import { SentryService } from '../sentry/sentry.service';
 import { JobRepository } from './job.repository';
 import { JobQueueMetricsService } from './job-queue-metrics.service';
 import { JobStatus, JobType } from './types';
@@ -26,6 +27,7 @@ export class DeadLetterQueueMonitorService implements OnModuleInit {
     private readonly repository: JobRepository,
     private readonly metrics: JobQueueMetricsService,
     private readonly config: AppConfigService,
+    private readonly sentry: SentryService,
   ) {}
 
   onModuleInit(): void {
@@ -97,20 +99,40 @@ export class DeadLetterQueueMonitorService implements OnModuleInit {
 
     if (firing && !wasFiring) {
       this.activeAlerts.add(key);
+      const message = `Dead letter queue alert firing for ${type} (${reason})`;
       this.logger.warn({
         message: 'Dead letter queue alert firing',
         type,
         reason,
         ...context,
       });
+      this.sentry?.captureMessage(
+        `[job-queue] ${message}`,
+        'warning',
+        {
+          type,
+          reason,
+          ...context,
+        },
+      );
     } else if (!firing && wasFiring) {
       this.activeAlerts.delete(key);
+      const message = `Dead letter queue alert cleared for ${type} (${reason})`;
       this.logger.log({
         message: 'Dead letter queue alert cleared',
         type,
         reason,
         ...context,
       });
+      this.sentry?.captureMessage(
+        `[job-queue] ${message}`,
+        'info',
+        {
+          type,
+          reason,
+          ...context,
+        },
+      );
     }
   }
 }

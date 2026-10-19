@@ -7,6 +7,7 @@ export const BUILD_NUMBER = String(
   extra.buildNumber ?? Constants.nativeBuildVersion ?? '1'
 );
 export const BUILD_TAG = String(extra.buildTag ?? '');
+export const GIT_COMMIT = String(extra.gitCommit ?? 'Unknown');
 export const APP_ENVIRONMENT = String(extra.environment ?? 'production');
 export const STELLAR_NETWORK = String(extra.stellarNetwork ?? 'mainnet');
 

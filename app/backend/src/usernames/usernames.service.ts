@@ -21,7 +21,25 @@ import {
   type FeaturedProfileResult,
   type MarketplaceListing,
   type UsernameRow,
+  type ProfileCustomization,
+  type ProfileResult,
 } from "./usernames.repository";
+import type { UpdateProfileDto } from "../dto/profile/update-profile.dto";
+import { ProfileResponseDto, toProfileResponse } from "../dto/profile/profile-response.dto";
+
+/**
+ * Pick the value to persist for one field of a partial profile update.
+ *
+ * `undefined` means the caller did not mention the field, so the stored value
+ * is kept. `null` means the caller cleared it. The DTO has already collapsed
+ * `""` to `null` and trimmed the rest, so the stored value never changes shape.
+ */
+function resolveField(
+  submitted: string | null | undefined,
+  stored: string | null,
+): string | null {
+  return submitted === undefined ? stored : submitted;
+}
 
 @Injectable()
 export class UsernamesService {
@@ -517,5 +535,143 @@ export class UsernamesService {
     }
 
     return result;
+  }
+
+  /**
+   * Load a profile's editable fields for its owning wallet.
+   *
+   * Ownership is verified against `public_key` rather than trusting the caller's
+   * claim, matching `togglePublicProfile`. A mismatch is reported as "not found"
+   * rather than "forbidden" so the endpoint cannot be used to discover which
+   * usernames exist.
+   */
+  async getOwnedProfile(
+    username: string,
+    publicKey: string,
+  ): Promise<ProfileResult> {
+    const normalized = this.normalizeUsername(username);
+    this.validateFormat(normalized);
+
+    const profile = await this.usernamesRepository.getProfileForOwner(normalized);
+    if (!profile || profile.public_key !== publicKey) {
+      throw this.profileNotOwnedError();
+    }
+
+    return profile;
+  }
+
+  /**
+   * Persist the presentation fields of a profile owned by `publicKey`.
+   *
+   * Fields the caller omitted are left as they are, so this is a partial update
+   * rather than a full-document replace.
+   *
+   * @throws UsernameValidationError NOT_FOUND when the profile does not exist or
+   * is owned by a different wallet.
+   */
+  async updateOwnedProfile(dto: UpdateProfileDto): Promise<ProfileResult> {
+    const normalized = this.normalizeUsername(dto.username);
+    this.validateFormat(normalized);
+
+    const current = await this.getOwnedProfile(normalized, dto.publicKey);
+
+    // Start from the stored values and overlay only what the caller sent, so an
+    // omitted field is genuinely untouched rather than nulled out.
+    const customization: ProfileCustomization = {
+      primary_color: resolveField(dto.primaryColor, current.primary_color),
+      avatar_url: resolveField(dto.avatarUrl, current.avatar_url),
+      bio: resolveField(dto.bio, current.bio),
+      twitter_handle: resolveField(dto.twitterHandle?.replace(/^@/, ''), current.twitter_handle),
+      discord_handle: resolveField(dto.discordHandle?.replace(/^@/, ''), current.discord_handle),
+      github_handle: resolveField(dto.githubHandle?.replace(/^@/, ''), current.github_handle),
+    };
+
+    const updated = await this.usernamesRepository.updateProfileCustomization(
+      normalized,
+      customization,
+    );
+
+    if (!updated) {
+      // The row existed moments ago, so a null here means it was deleted
+      // concurrently rather than that the update was rejected.
+      throw new UsernameValidationError(
+        UsernameErrorCode.NOT_FOUND,
+        "Username not found",
+        "username",
+      );
+    }
+
+    // The public profile surface reads from cache, so a customization change
+    // has to be visible on the next public read, not the next one.
+    this.cache.invalidateForUsername(normalized);
+
+    return updated;
+  }
+
+  private profileNotOwnedError(): UsernameValidationError {
+    return new UsernameValidationError(
+      UsernameErrorCode.NOT_FOUND,
+      "Username not found or does not belong to this wallet",
+      "username",
+    );
+  }
+
+  /**
+   * Presentation fields for an already-confirmed *public* profile.
+   *
+   * Separate from `getOwnedProfile` because the public route has no wallet
+   * identity to verify against: `is_public` is the gate, and the caller must
+   * have established it first. Returns `null` for every field when the row is
+   * missing, so the public response shape stays stable.
+   *
+   * Reads through the repository rather than the discovery cache on purpose.
+   * That cache is keyed by username and already holds the visibility-filtered
+   * `SearchProfileResult` for public reads, so writing a wider row under the
+   * same key would make the shape that cache returns depend on call order.
+   */
+  async getPublicCustomization(
+    username: string,
+  ): Promise<ProfileCustomization> {
+    const normalized = this.normalizeUsername(username);
+
+    const profile = await this.usernamesRepository.getProfileForOwner(normalized);
+    if (!profile) {
+      return {
+        primary_color: null,
+        avatar_url: null,
+        bio: null,
+        twitter_handle: null,
+        discord_handle: null,
+        github_handle: null,
+      };
+    }
+
+    return {
+      primary_color: profile.primary_color,
+      avatar_url: profile.avatar_url,
+      bio: profile.bio,
+      twitter_handle: profile.twitter_handle,
+      discord_handle: profile.discord_handle,
+      github_handle: profile.github_handle,
+    };
+  }
+
+  /**
+   * Load the full public profile (camelCase) in a single query with the
+   * `is_public = true` filter baked in. Returns null if the profile doesn't
+   * exist or is private. This replaces the two-step read that had a TOCTOU
+   * window and emitted snake_case keys.
+   */
+  async getPublicProfileForDisplay(
+    username: string,
+  ): Promise<ProfileResponseDto | null> {
+    const normalized = this.normalizeUsername(username);
+    const profile = await this.usernamesRepository.getPublicProfileForDisplay(
+      normalized,
+    );
+    if (!profile) {
+      return null;
+    }
+    return toProfileResponse(profile);
   }
 }

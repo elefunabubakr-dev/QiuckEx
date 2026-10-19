@@ -8,6 +8,7 @@ import {
   ErasureSubject,
   PrivacyRetentionService,
 } from "./privacy-retention.service";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 class ErasureRequestDto implements ErasureSubject {
   publicKey?: string;
@@ -24,6 +25,7 @@ export class PrivacyAdminController {
   constructor(private readonly retentionService: PrivacyRetentionService) {}
 
   @Post("retention/run")
+  @RateLimitTier("mutation")
   @ApiOperation({
     summary: "Run the privacy retention sweeper immediately",
   })
@@ -32,6 +34,7 @@ export class PrivacyAdminController {
   }
 
   @Post("erasure")
+  @RateLimitTier("mutation")
   @ApiOperation({
     summary: "Service a right-to-erasure request across declared data stores",
   })

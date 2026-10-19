@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import AnalyticsDashboard from "@/components/AnalyticsDashboard";
 import { NetworkBadge } from "@/components/NetworkBadge";
 import { useApi } from "@/hooks/useApi";
 import { fetchAnalytics, type AnalyticsData } from "@/hooks/analyticsApi";
@@ -19,6 +19,22 @@ import {
   type ActivityFeedItem,
 } from "@/hooks/activityFeedApi";
 import { formatCurrency } from "@/lib/formatting";
+
+// Code-split the charts: recharts (~400 KB) is only needed once the analytics
+// section renders, so keep it out of the route's first-load JS.
+const AnalyticsDashboard = dynamic(
+  () => import("@/components/AnalyticsDashboard"),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        aria-busy="true"
+        aria-label="Loading analytics"
+        className="h-96 animate-pulse rounded-3xl border border-border bg-card"
+      />
+    ),
+  },
+);
 
 type DashboardResponse = {
   items: ActivityFeedItem[];

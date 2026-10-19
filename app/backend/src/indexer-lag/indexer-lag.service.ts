@@ -31,6 +31,16 @@ export class IndexerLagService implements OnModuleInit {
   }
 
   onModuleInit() {
+    if (this.config.indexerLagGuardEnabled && !this.config.quickexContractId) {
+      // Lag is computed from the ingestion checkpoint, and the checkpoint is
+      // keyed by contract. Without a contract id there is no checkpoint to
+      // read, `lagLedgers` stays null, and `isLagging` can never become true --
+      // i.e. the guard would silently never fire. Fail loudly instead.
+      this.logger.warn(
+        "Indexer lag guard is enabled but QUICKEX_CONTRACT_ID is not set; " +
+          "lag cannot be computed and no indexed-data route will be blocked.",
+      );
+    }
     this.pollHorizon();
   }
 

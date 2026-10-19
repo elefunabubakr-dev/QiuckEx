@@ -19,6 +19,7 @@ soroban-sdk = { version = "23", features = ["testutils"] }
 proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+reference_hook = { path = "../reference_hook" }
 
 [profile.release]
 opt-level = "z"

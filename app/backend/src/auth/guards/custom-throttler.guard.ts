@@ -6,10 +6,14 @@ import {
   ThrottlerRequest,
 } from "@nestjs/throttler";
 import { parse } from "ipaddr.js";
-import {
-  RATE_LIMIT_GROUP_METADATA_KEY,
+import type {
   RateLimitGroup,
   RateLimitKeyType,
+  RateLimitTier,
+} from "../../config/rate-limit.config";
+import {
+  RATE_LIMIT_GROUP_METADATA_KEY,
+  RATE_LIMIT_TIER_METADATA_KEY,
   THROTTLER_BURST_NAME,
   throttlerConfig,
 } from "../../config/rate-limit.config";
@@ -26,7 +30,8 @@ type RequestWithRateLimitContext = Record<string, unknown> & {
   originalUrl?: string;
   method?: string;
   rateLimitContext?: {
-    group: RateLimitGroup;
+    group?: RateLimitGroup;
+    tier?: RateLimitTier;
     keyType: RateLimitKeyType;
   };
 };
@@ -96,15 +101,27 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
       return true;
     }
 
-    const group = this.resolveGroup(context, req);
     const window =
       throttler.name === THROTTLER_BURST_NAME ? "burst" : "sustained";
-    const windowConfig = throttlerConfig.groups[group][window];
+    const identity = this.resolveIdentity(req);
 
-    req.rateLimitContext = {
-      group,
-      keyType: this.resolveIdentity(req).keyType,
-    };
+    let windowConfig: { limit: number; ttlMs: number };
+    const tier = this.resolveTier(context);
+    const group = this.resolveGroup(context, req);
+
+    if (tier) {
+      windowConfig = throttlerConfig.tiers[tier][window];
+      req.rateLimitContext = {
+        tier,
+        keyType: identity.keyType,
+      };
+    } else {
+      windowConfig = throttlerConfig.groups[group][window];
+      req.rateLimitContext = {
+        group,
+        keyType: identity.keyType,
+      };
+    }
 
     try {
       return await super.handleRequest({
@@ -130,17 +147,25 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
 
         const method = req.method ?? "unknown";
         const routePath = req.route?.path ?? req.path ?? req.originalUrl ?? "unknown";
-        
+        const entity = tier ?? group;
+
         this.metricsService.recordRateLimitedRequest(
           method,
           routePath,
-          group,
+          entity,
           req.rateLimitContext.keyType,
         );
       }
 
       throw error;
     }
+  }
+
+  private resolveTier(context: ExecutionContext): RateLimitTier | undefined {
+    return this.reflector.getAllAndOverride<RateLimitTier>(
+      RATE_LIMIT_TIER_METADATA_KEY,
+      [context.getHandler(), context.getClass()],
+    );
   }
 
   protected async getTracker(

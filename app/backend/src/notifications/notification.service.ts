@@ -22,6 +22,7 @@ import type {
   PaymentLinkExpiredPayload,
   ExportCompletedPayload,
   ExportFailedPayload,
+  RecurringPaymentDuePayload,
 } from "./types/notification.types";
 
 import {
@@ -247,6 +248,47 @@ export class NotificationService implements OnModuleInit {
         " has been successfully registered.",
       occurredAt: new Date().toISOString(),
       username: event.username,
+    };
+
+    await this.dispatch(payload);
+  }
+
+  @OnEvent("recurring.payment.due", { async: true })
+  async onRecurringPaymentDue(event: {
+    linkId: string;
+    executionId: string;
+    recipientPublicKey?: string;
+    username?: string;
+    destination?: string;
+    amount: number;
+    asset: string;
+    periodNumber: number;
+    scheduledAt?: string;
+  }): Promise<void> {
+    const recipientPublicKey = event.recipientPublicKey || event.destination || (event.username ? `user:${event.username}` : undefined);
+    if (!recipientPublicKey) return;
+
+    const payload: RecurringPaymentDuePayload = {
+      eventType: "recurring.payment.due",
+      eventId: `recurring-due:${event.executionId}`,
+      recipientPublicKey,
+      title: "Upcoming Recurring Payment",
+      body: `Your recurring payment of ${event.amount} ${event.asset} is scheduled to execute soon.`,
+      occurredAt: new Date().toISOString(),
+      linkId: event.linkId,
+      executionId: event.executionId,
+      username: event.username,
+      destination: event.destination,
+      amount: event.amount,
+      asset: event.asset,
+      periodNumber: event.periodNumber,
+      scheduledAt: event.scheduledAt || new Date().toISOString(),
+      metadata: {
+        linkId: event.linkId,
+        executionId: event.executionId,
+        amount: event.amount,
+        asset: event.asset,
+      },
     };
 
     await this.dispatch(payload);

@@ -11,6 +11,7 @@ import { ApiKeyScope } from "../../api-keys/api-keys.types";
 import { throttlerConfig } from "../../config/rate-limit.config";
 import { REQUIRED_SCOPES_KEY } from "../decorators/require-scopes.decorator";
 import { REQUIRED_ANY_SCOPE_KEY } from "../decorators/require-any-scope.decorator";
+import { REQUIRE_API_KEY_KEY } from "../decorators/require-api-key.decorator";
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -23,7 +24,22 @@ export class ApiKeyGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const rawKey: string | undefined = request.headers["x-api-key"];
 
-    if (!rawKey) return true; // public access allowed
+    if (!rawKey) {
+      // Routes not marked with @RequireApiKey() are intentionally public.
+      const requiresApiKey = this.reflector.getAllAndOverride<boolean>(
+        REQUIRE_API_KEY_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+
+      if (requiresApiKey === true) {
+        throw new UnauthorizedException({
+          error: "MISSING_API_KEY",
+          message: "This endpoint requires a valid API key",
+        });
+      }
+
+      return true; // public access allowed
+    }
 
     const result = await this.apiKeysService.validateKey(rawKey);
 
@@ -90,6 +106,7 @@ export class ApiKeyGuard implements CanActivate {
       name: record.name,
       scopes: record.scopes,
       rateLimit: throttlerConfig.groups.authenticated.sustained.limit,
+      owner_id: record.owner_id,
       organization_id: record.organization_id,
     };
 

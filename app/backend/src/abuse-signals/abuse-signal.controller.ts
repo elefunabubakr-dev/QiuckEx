@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiQuery } from "@nestjs/swagger";
 import { AbuseSignalService } from "./abuse-signal.service";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 @ApiTags("admin/abuse-signals")
 @Controller("admin/abuse-signals")
@@ -16,6 +17,7 @@ export class AbuseSignalController {
   constructor(private readonly abuseSignalService: AbuseSignalService) {}
 
   @Get("suspicious")
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "List suspicious abuse signals",
@@ -47,6 +49,7 @@ export class AbuseSignalController {
   }
 
   @Get("by-ip")
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Get signals by IP address hash",
@@ -81,6 +84,7 @@ export class AbuseSignalController {
   }
 
   @Get("summary")
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Abuse signal summary aggregation",
@@ -102,6 +106,7 @@ export class AbuseSignalController {
   }
 
   @Get("ip-summaries")
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Per-IP abuse score summaries",
@@ -132,6 +137,7 @@ export class AbuseSignalController {
   }
 
   @Get("prune")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Prune expired abuse signals",

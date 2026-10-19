@@ -1,4 +1,6 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 import { SigningSummary } from "../SigningSummary";
 
 describe("SigningSummary", () => {

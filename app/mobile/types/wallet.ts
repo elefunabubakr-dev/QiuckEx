@@ -11,6 +11,7 @@ export type WalletErrorCode =
   | "connection_failed"
   | "session_expired"
   | "wallet_not_found"
+  | "wallet_not_supported"
   | "session_environment_mismatch"
   | "session_corrupted";
 

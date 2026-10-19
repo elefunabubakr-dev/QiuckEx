@@ -7,6 +7,7 @@ import { Sep24TransactionRepository } from './sep24-transaction.repository';
 import { Sep24PollingService } from './sep24-polling.service';
 import { Sep24PollingWorkerService } from './sep24-polling-worker.service';
 import { AnchorClientService } from './anchor-client.service';
+import { AnchorWebhookGuard } from './guards/anchor-webhook.guard';
 import { IdempotencyModule } from '../common/idempotency/idempotency.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { MetricsModule } from '../metrics/metrics.module';
@@ -32,12 +33,14 @@ import { ReconciliationModule } from '../reconciliation/reconciliation.module';
     AnchorClientService,
     Sep24PollingService,
     Sep24PollingWorkerService,
+    AnchorWebhookGuard,
   ],
   exports: [
     FiatRampsService,
     Sep24TransactionRepository,
     Sep24PollingService,
     AnchorClientService,
+    AnchorWebhookGuard,
   ],
 })
 export class FiatRampsModule {}

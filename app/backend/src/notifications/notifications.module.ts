@@ -1,3 +1,4 @@
+import { AuthModule } from "../auth/auth.module";
 import { Module, forwardRef } from "@nestjs/common";
 
 import { SupabaseModule } from "../supabase/supabase.module";
@@ -46,7 +47,7 @@ import { TemplateVersionService } from "./template-versioning/template-version.s
  * ScheduleModule is registered once at AppModule level.
  */
 @Module({
-  imports: [SupabaseModule, MetricsModule, AuditModule, ApiKeysModule, forwardRef(() => JobQueueModule)],
+  imports: [AuthModule, SupabaseModule, MetricsModule, AuditModule, ApiKeysModule, forwardRef(() => JobQueueModule)],
   controllers: [
     NotificationPreferencesController,
     TelegramController,
@@ -119,6 +120,7 @@ import { TemplateVersionService } from "./template-versioning/template-version.s
     TelegramBotService,
     TelegramNotificationProvider,
     WebhookService,
+    InAppNotificationRepository,
   ],
 })
 export class NotificationsModule {}

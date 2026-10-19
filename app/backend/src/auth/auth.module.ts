@@ -1,3 +1,5 @@
+import { WalletRequestAuthService } from './wallet-request-auth.service';
+import { WalletRequestGuard } from './guards/wallet-request.guard';
 import { Module } from '@nestjs/common';
 import { ApiKeyGuard } from './guards/api-key.guard';
 import { CustomThrottlerGuard } from './guards/custom-throttler.guard';
@@ -6,7 +8,7 @@ import { MetricsModule } from '../metrics/metrics.module';
 
 @Module({
   imports: [ApiKeysModule, MetricsModule],
-  providers: [ApiKeyGuard, CustomThrottlerGuard],
-  exports: [ApiKeyGuard, CustomThrottlerGuard],
+  providers: [WalletRequestAuthService, WalletRequestGuard, ApiKeyGuard, CustomThrottlerGuard],
+  exports: [WalletRequestAuthService, WalletRequestGuard, ApiKeyGuard, CustomThrottlerGuard],
 })
 export class AuthModule {}

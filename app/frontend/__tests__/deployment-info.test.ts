@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Tests for deployment-info.ts helpers.
  *
@@ -19,7 +20,7 @@ import {
 const originalEnv = process.env;
 
 beforeEach(() => {
-  jest.resetModules();
+  vi.resetModules();
   process.env = { ...originalEnv };
 });
 

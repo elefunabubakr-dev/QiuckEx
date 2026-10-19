@@ -10,6 +10,7 @@ import { Request, Response } from 'express';
 
 import { RuntimeConfigResponseDto } from './dto/runtime-config.dto';
 import { RuntimeConfigService } from './runtime-config.service';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('runtime-config')
 @Controller('v1/runtime-config')
@@ -17,6 +18,7 @@ export class RuntimeConfigController {
   constructor(private readonly runtimeConfigService: RuntimeConfigService) {}
 
   @Get()
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: 'Public runtime configuration bootstrap',
     description:

@@ -6,8 +6,54 @@ import {
   Asset,
   BASE_FEE,
   Account,
-} from 'stellar-sdk';
-import type { PathPreviewRow } from './link-metadata';
+} from "stellar-sdk";
+import type { PathPreviewRow } from "./link-metadata";
+import { getVerifiedIssuer } from "./verified-assets";
+
+/**
+ * Resolves a string asset selector to a Stellar SDK Asset.
+ *
+ * Accepted formats:
+ *   - "XLM" or "" → native asset
+ *   - "USDC"       → looks up issuer from the verified-assets registry
+ *   - "AQUA:<ISSUER_ADDRESS>" → uses the explicit issuer as-is
+ *
+ * Throws a descriptive error for unknown codes without an explicit issuer
+ * instead of silently substituting a placeholder.
+ */
+function resolveAsset(asset: string): Asset {
+  const trimmed = asset.trim();
+
+  if (!trimmed || trimmed.toUpperCase() === "XLM") {
+    return Asset.native();
+  }
+
+  const [code, ...issuerParts] = trimmed.split(":");
+  const normalizedCode = code.trim().toUpperCase();
+  const explicitIssuer = issuerParts.join(":").trim();
+
+  if (!normalizedCode) {
+    throw new Error(`Invalid asset selector: "${asset}"`);
+  }
+
+  // Caller supplied an explicit issuer — use it verbatim.
+  if (explicitIssuer) {
+    return new Asset(normalizedCode, explicitIssuer);
+  }
+
+  // No explicit issuer — look up from the verified-assets registry
+  // (the single source of truth shared across path-payment and swappable-assets).
+  const verifiedIssuer = getVerifiedIssuer(normalizedCode);
+  if (!verifiedIssuer) {
+    throw new Error(
+      `Unsupported non-native asset: "${asset}". ` +
+        `Either supply an explicit issuer (e.g. "${normalizedCode}:<ISSUER>") ` +
+        `or add the asset to the verified-assets registry.`,
+    );
+  }
+
+  return new Asset(normalizedCode, verifiedIssuer);
+}
 
 export interface PathPaymentOptions {
   sourceAsset: string;
@@ -18,7 +64,7 @@ export interface PathPaymentOptions {
   sourceAccountSequence: number;
   memo?: string;
   memoType?: string;
-  network?: 'public' | 'testnet';
+  network?: "public" | "testnet";
 }
 
 export interface PathPaymentRoute {
@@ -41,14 +87,8 @@ export function buildPathPaymentOperation(
     destinationAccount,
   } = options;
 
-  // Create Asset objects for source and destination
-  const srcAsset = sourceAsset === 'XLM'
-    ? Asset.native()
-    : new Asset(sourceAsset, 'GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTWYV2KY2H5YMWUT6YFPQQSTVY'); // TODO: Get correct issuer from whitelist
-
-  const dstAsset = destinationAsset === 'XLM'
-    ? Asset.native()
-    : new Asset(destinationAsset, 'GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTWYV2KY2H5YMWUT6YFPQQSTVY'); // TODO: Get correct issuer from whitelist
+  const srcAsset = resolveAsset(sourceAsset);
+  const dstAsset = resolveAsset(destinationAsset);
 
   return Operation.pathPaymentStrictReceive({
     destination: destinationAccount,
@@ -78,11 +118,11 @@ export function buildPathPaymentTransaction(
   const keypair = Keypair.fromSecret(secretKey);
 
   if (keypair.publicKey() !== userAccount.accountId) {
-    throw new Error('Secret key does not match user account');
+    throw new Error("Secret key does not match user account");
   }
 
   const networkPassphrase =
-    options.network === 'public' ? Networks.PUBLIC : Networks.TESTNET;
+    options.network === "public" ? Networks.PUBLIC : Networks.TESTNET;
 
   const transaction = new TransactionBuilder(
     new Account(userAccount.accountId, String(userAccount.sequenceNumber)),
@@ -96,7 +136,7 @@ export function buildPathPaymentTransaction(
     .build();
 
   transaction.sign(keypair);
-  return transaction.toEnvelope().toXDR('base64');
+  return transaction.toEnvelope().toXDR("base64");
 }
 
 /**
@@ -105,9 +145,9 @@ export function buildPathPaymentTransaction(
  */
 export function formatSwapPathDisplay(path: string[]): string {
   if (path.length === 0) {
-    return 'Direct';
+    return "Direct";
   }
-  return path.join(' → ');
+  return path.join(" → ");
 }
 
 /**
@@ -119,6 +159,11 @@ export function calculateExchangeRate(
 ): number {
   const src = parseFloat(sourceAmount);
   const dst = parseFloat(destinationAmount);
+
+  if (!Number.isFinite(src) || !Number.isFinite(dst) || src === 0) {
+    return 0;
+  }
+
   return dst / src;
 }
 
@@ -137,7 +182,10 @@ export function calculateSlippage(
 
   const src = parseFloat(sourceAmount);
   const dst = parseFloat(destinationAmount);
-  const rate = dst / src;
+
+  if (!Number.isFinite(src) || !Number.isFinite(dst) || src === 0) {
+    return 0;
+  }
 
   // Estimate base slippage: 0.1% per hop (typical Stellar spread)
   const estimatedBaseSlippage = hopCount * 0.001;

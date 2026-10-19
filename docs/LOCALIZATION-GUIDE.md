@@ -80,7 +80,7 @@ JSON rather than inline TypeScript is deliberate: the CI parity checks read the 
 
 3. **Verify:** `pnpm --filter mobile check:i18n`
 
-> **Before you test on mobile, read [drift item D1](#d1-the-mobile-i18n-bootstrap-import-is-broken).** The mobile bootstrap import is currently broken, so `t()` returns raw key names at runtime regardless of what is in the dictionary. Fixing that one-character path is a prerequisite for any mobile translation work being visible.
+> **The mobile bootstrap import is fixed — see [drift item D1](#d1-the-mobile-i18n-bootstrap-import-is-broken).** `t()` now resolves real translations. If raw key names ever reappear, check that `app/mobile/app/_layout.tsx` still imports `../src/lib/i18n`.
 
 ### If the string appears on both clients
 
@@ -261,21 +261,23 @@ Two gaps to be aware of:
 
 ## 7. Known drift — the current starting point
 
-Everything below is true of the tree as it stands. Treat this section as the backlog, not as background.
+Everything below describes the tree as it stands, except for the entry marked resolved. Treat this section as the backlog, not as background.
 
 ### D1. The mobile i18n bootstrap import is broken
 
-[`app/mobile/app/_layout.tsx:15`](../app/mobile/app/_layout.tsx#L15) reads:
+**Status: resolved.** [`app/mobile/app/_layout.tsx:15`](../app/mobile/app/_layout.tsx#L15) now reads `import "../src/lib/i18n";`, which resolves to `app/mobile/src/lib/i18n.ts`, so the bootstrap runs at app start.
+
+The original line was:
 
 ```ts
 import "../../src/lib/i18n";
 ```
 
-From `app/mobile/app/`, `../..` resolves to `app/` — so the path is `app/src/lib/i18n`, which does not exist. The correct path is `../src/lib/i18n`, and no `tsconfig` alias covers the current form (`@/*` maps to `./*` relative to `app/mobile`).
+From `app/mobile/app/`, `../..` resolves to `app/` — so the path was `app/src/lib/i18n`, which does not exist. No `tsconfig` alias covered that form (`@/*` maps to `./*` relative to `app/mobile`).
 
-**Consequence:** the `i18next` instance is never initialised at app start. `useTranslation()` still returns a `t` function, so nothing crashes — every call just returns the raw key name. The mobile dictionary is effectively inert at runtime, and the parity check cannot detect this because it only reads the JSON.
+**Consequence:** the `i18next` instance was never initialised at app start. `useTranslation()` still returned a `t` function, so nothing threw — every call just returned the raw key name. The mobile dictionary was effectively inert at runtime, and the parity check cannot detect this because it only reads the JSON.
 
-**Fix:** change the path to `../src/lib/i18n`. Verify by confirming a screen renders `Dashboard` rather than `dashboard`.
+**Fix (landed):** the import is now `../src/lib/i18n`, and `src/lib/i18n.ts` no longer assumes `window.localStorage` exists — React Native defines `window` but not `localStorage`, so the old bootstrap would have thrown on native the moment the path was fixed. A regression test ([`app/mobile/__tests__/i18n-bootstrap.test.js`](../app/mobile/__tests__/i18n-bootstrap.test.js)) asserts the app entry's import resolves and renders a component under `fr`, asserting `Tableau de Bord` rather than the raw key.
 
 ### D2. The mobile locale picker only offers English
 

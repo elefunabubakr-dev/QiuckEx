@@ -459,9 +459,56 @@ export class RecurringPaymentsRepository {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Helper methods
-  // ---------------------------------------------------------------------------
+  async findExecutionByLinkAndPeriod(
+    linkId: string,
+    periodNumber: number,
+  ): Promise<DbRecurringPaymentExecution | null> {
+    const { data, error } = await this.supabase
+      .from('recurring_payment_executions')
+      .select('*')
+      .eq('recurring_link_id', linkId)
+      .eq('period_number', periodNumber)
+      .maybeSingle();
+
+    if (error) {
+      this.logger.error(`Error finding execution by link and period: ${error.message}`, error.stack);
+      throw error;
+    }
+
+    return data as DbRecurringPaymentExecution | null;
+  }
+
+  async getUpcomingLinksForNotification(
+    hoursAhead = 24,
+    previewScope?: string,
+  ): Promise<DbRecurringPaymentLink[]> {
+    const now = new Date();
+    const futureCutoff = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
+
+    let query = this.supabase
+      .from('recurring_payment_links')
+      .select('*')
+      .eq('status', 'active')
+      .gte('next_execution_date', now.toISOString())
+      .lte('next_execution_date', futureCutoff.toISOString())
+      .or(`total_periods.is.null,executed_count.lt.total_periods`)
+      .or(`end_date.is.null,end_date.gt.${now.toISOString()}`);
+
+    if (previewScope) {
+      query = query.eq('preview_scope', previewScope);
+    } else {
+      query = query.is('preview_scope', null);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      this.logger.error(`Error getting upcoming links for notification: ${error.message}`, error.stack);
+      throw error;
+    }
+
+    return (data as DbRecurringPaymentLink[]) ?? [];
+  }
 
   async getDueForExecution(previewScope?: string): Promise<DbRecurringPaymentLink[]> {
     const { data, error } = await this.supabase.rpc('should_execute_recurring_link');
@@ -504,3 +551,4 @@ export class RecurringPaymentsRepository {
     return [];
   }
 }
+

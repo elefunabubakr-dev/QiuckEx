@@ -1,4 +1,4 @@
-import { APP_VERSION, BUILD_NUMBER, APP_ENVIRONMENT, STELLAR_NETWORK, BUILD_TAG, BUILD_METADATA } from '../config/build';
+import { APP_VERSION, BUILD_NUMBER, APP_ENVIRONMENT, STELLAR_NETWORK, BUILD_TAG, GIT_COMMIT, BUILD_METADATA } from '../config/build';
 
 export interface BuildMetadata {
   appVersion: string;
@@ -12,23 +12,13 @@ export interface BuildMetadata {
 
 /**
  * Get build metadata for display in settings
- * Git branch and commit are extracted from BUILD_TAG if available
+ * Git branch is extracted from BUILD_TAG, commit SHA is read from GIT_COMMIT
  */
 export function getBuildMetadata(): BuildMetadata {
-  // Extract branch and commit from BUILD_TAG (format: branch-commithash)
-  // or use fallback values
-  let gitBranch = 'Unknown';
-  let gitCommit = 'Unknown';
-
-  if (BUILD_TAG) {
-    const parts = BUILD_TAG.split('-');
-    if (parts.length >= 2) {
-      gitBranch = parts.slice(0, -1).join('-');
-      gitCommit = parts[parts.length - 1];
-    } else {
-      gitBranch = BUILD_TAG;
-    }
-  }
+  // Extract branch from BUILD_TAG or use fallback
+  const gitBranch = BUILD_TAG || 'Unknown';
+  // Use the pre-extracted commit SHA from app.config.ts
+  const gitCommit = GIT_COMMIT;
 
   return {
     appVersion: APP_VERSION,

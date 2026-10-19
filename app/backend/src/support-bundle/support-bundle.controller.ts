@@ -12,6 +12,7 @@ import { SupportBundleService } from './support-bundle.service';
 import { SupportBundleDto } from './dto/support-bundle.dto';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('Admin - Support Bundle')
 @Controller('admin/support/bundle')
@@ -21,6 +22,7 @@ export class SupportBundleController {
   constructor(private readonly supportBundleService: SupportBundleService) {}
 
   @Get()
+  @RateLimitTier("export")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({

@@ -7,6 +7,7 @@ import { AutoMatchService } from "./auto-match.service";
 import { UnmatchedQueueRepository } from "./unmatched-queue.repository";
 import { ReconciliationRunRepository } from "./reconciliation-run.repository";
 import { NetworkSafetyGuard } from "../feature-flags/network-safety.guard";
+import { ApiKeyGuard } from "../auth/guards/api-key.guard";
 
 describe("ReconciliationController", () => {
   let controller: ReconciliationController;
@@ -57,6 +58,8 @@ describe("ReconciliationController", () => {
       ],
     })
       .overrideGuard(NetworkSafetyGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(ApiKeyGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

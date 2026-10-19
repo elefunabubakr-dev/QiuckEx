@@ -11,7 +11,7 @@ import {
 import { ApiTags, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
-import { RateLimitGroupTag } from '../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 import { ContractChangeWebhookService } from './contract-change-webhook.service';
 
 export class RegisterContractChangeWebhookDto {
@@ -36,6 +36,7 @@ export class ContractChangeWebhooksController {
   ) {}
 
   @Get()
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({
     summary: 'List registered contract change webhooks (admin only)',
@@ -48,6 +49,7 @@ export class ContractChangeWebhooksController {
   }
 
   @Post()
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.CREATED)
   @RequireScopes('admin')
   @ApiOperation({
@@ -67,6 +69,7 @@ export class ContractChangeWebhooksController {
   }
 
   @Delete(':id')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequireScopes('admin')
   @ApiOperation({

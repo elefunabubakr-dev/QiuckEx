@@ -2,6 +2,7 @@ import { Controller, Get, Query } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 
 import { PaymentsService } from "./payments.service";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 type RecentPaymentsQuery = {
   address: string;
@@ -15,6 +16,7 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Get("recent")
+  @RateLimitTier("search")
   @ApiOperation({
     summary: "Fetch recent payments for an address (since timestamp)",
   })

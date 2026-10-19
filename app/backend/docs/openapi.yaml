@@ -348,6 +348,84 @@ paths:
           $ref: "#/components/responses/NotFound"
 
   # ---------------------------------------------------------------------------
+  # Profile settings
+  #
+  # Backs the /settings page. Both routes require the owning wallet's public key
+  # and verify it against the profile's public_key; a mismatch is reported as 404
+  # so the routes cannot be used to enumerate which usernames exist. Note this is
+  # not wallet authentication: the key is supplied by the caller.
+  # ---------------------------------------------------------------------------
+  /profile:
+    get:
+      tags: [profile]
+      operationId: getProfile
+      summary: Get the editable profile for a wallet
+      description: >
+        Returns the presentation fields shown on the settings page. Works for a
+        private profile too, since the owner still needs to see their own
+        values.
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+          example: alice_123
+        - name: publicKey
+          in: query
+          required: true
+          description: Stellar public key of the wallet that owns the profile
+          schema:
+            type: string
+          example: GBXGQ55IMY5OMHDMZV5ZLX5XNRM3MHZJXUIBZ4QKOW3S6GXQ2KJQ2Q
+      responses:
+        "200":
+          description: The profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: No such profile, or it is owned by a different wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      tags: [profile]
+      operationId: updateProfile
+      summary: Update the editable profile for a wallet
+      description: >
+        Partial update. Omit a field to leave it unchanged; send null or an empty
+        string to clear it. `username` locates the profile and is never renamed,
+        because renaming cascades into `username_marketplace` and would delete
+        the owner's listings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: The profile as persisted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: No such profile, or it is owned by a different wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
   # Links
   # ---------------------------------------------------------------------------
   /links/metadata:
@@ -431,7 +509,7 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
-  /links/scan:
+  /scam-alerts/scan:
     post:
       tags: [scam-alerts]
       operationId: scanLink
@@ -1657,18 +1735,48 @@ paths:
       tags: [fiat-ramps]
       operationId: handleKycCallback
       summary: Handle KYC redirects
+      parameters:
+        - in: header
+          name: X-Anchor-Signature
+          schema:
+            type: string
+          required: false
+          description: HMAC-SHA256 signature of the payload (e.g. sha256=<hex>)
+        - in: header
+          name: X-Anchor-Secret
+          schema:
+            type: string
+          required: false
+          description: Shared secret issued to the anchor
       responses:
         "200":
           description: Callback processed
+        "401":
+          description: Missing or invalid webhook signature or secret
 
   /fiat-ramps/transaction/status:
     post:
       tags: [fiat-ramps]
       operationId: updateTransactionStatus
       summary: Handle transaction status updates
+      parameters:
+        - in: header
+          name: X-Anchor-Signature
+          schema:
+            type: string
+          required: false
+          description: HMAC-SHA256 signature of the payload (e.g. sha256=<hex>)
+        - in: header
+          name: X-Anchor-Secret
+          schema:
+            type: string
+          required: false
+          description: Shared secret issued to the anchor
       responses:
         "200":
           description: Status updated
+        "401":
+          description: Missing or invalid webhook signature or secret
 
   # ---------------------------------------------------------------------------
   # Admin / Refunds
@@ -1888,6 +1996,14 @@ paths:
 
   # ---------------------------------------------------------------------------
   # Reconciliation
+  #
+  # Every route below except the two operator remedy routes is decorated with
+  # @RequiresIndexerLagCheck(FAIL_CLOSED): reconciliation conclusions drawn
+  # from a stale index produce wrong match decisions. The remedy routes
+  # (POST /reconciliation/unmatched/{id}/resolve and
+  # DELETE /reconciliation/unmatched/{id}) stay available during a lag episode
+  # so an operator can still clear the queue. See
+  # docs/INDEXER-LAG-GUARD-ROUTES.md.
   # ---------------------------------------------------------------------------
   /reconciliation/status:
     get:
@@ -1897,6 +2013,8 @@ paths:
       responses:
         "200":
           description: Worker status and last report
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
 
   /reconciliation/trigger:
     post:
@@ -1908,6 +2026,8 @@ paths:
           description: Reconciliation completed
         "409":
           description: Already running
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
 
   /reconciliation/backfill:
     post:
@@ -1925,6 +2045,8 @@ paths:
           description: Backfill completed
         "409":
           description: Backfill already running
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
 
   /reconciliation/backfill/status:
     get:
@@ -1934,6 +2056,133 @@ paths:
       responses:
         "200":
           description: Backfill progress
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
+
+  # ---------------------------------------------------------------------------
+  # Indexed-data reads protected by the indexer lag guard
+  # ---------------------------------------------------------------------------
+  /transaction-timeline:
+    get:
+      tags: [transaction-timeline]
+      operationId: getTransactionTimeline
+      summary: Get the aggregated timeline for a transaction
+      description: >
+        Every event kind on this route is read from indexed tables, so a
+        partially-written timeline would read as "this transaction did fewer
+        things than it did". The route therefore fails closed while the
+        indexer is behind.
+      parameters:
+        - name: txHash
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: address
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ordered timeline (may be partial when a source fails)
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
+
+  /dashboard-feed:
+    get:
+      tags: [dashboard-feed]
+      operationId: getDashboardFeed
+      summary: Get the unified activity feed
+      description: >
+        The feed is a browse surface ordered newest-first, so it is served
+        while lagging and annotated with the staleness headers rather than
+        rejected.
+      responses:
+        "200":
+          description: Activity feed
+          headers:
+            X-QuickEx-Indexer-Lag-Ledgers:
+              $ref: "#/components/headers/IndexerLagLedgers"
+            X-QuickEx-Indexer-Last-Ledger:
+              $ref: "#/components/headers/IndexerLastLedger"
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
+
+  /v1/receipts/tx/{txHash}:
+    get:
+      tags: [receipts]
+      operationId: getReceiptByTxHash
+      summary: Get a normalized receipt for a transaction
+      description: >
+        Joins live Horizon/RPC data against the indexed receipts table, so it
+        fails closed while the indexer is behind rather than returning a
+        receipt with silently missing indexed metadata.
+      parameters:
+        - name: txHash
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: operationIndex
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Normalized receipt
+        "503":
+          $ref: "#/components/responses/IndexerLagging"
+
+  /v1/receipts/address/{address}:
+    get:
+      tags: [receipts]
+      operationId: getReceiptsByAddress
+      summary: List normalized receipts for an address
+      description: >
+        A browse surface ordered newest-first, so it is served while lagging
+        and annotated with the staleness headers.
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated receipt list
+          headers:
+            X-QuickEx-Indexer-Lag-Ledgers:
+              $ref: "#/components/headers/IndexerLagLedgers"
+            X-QuickEx-Indexer-Last-Ledger:
+              $ref: "#/components/headers/IndexerLastLedger"
+
+  /v1/receipts/verify-hash:
+    post:
+      tags: [receipts]
+      operationId: verifyReceiptHash
+      summary: Verify a receipt hash against canonical inputs
+      description: >
+        Deliberately not protected by the indexer lag guard: it is a pure
+        function of the caller's own body, so indexer state cannot make its
+        answer wrong, and callers must be able to verify integrity precisely
+        when the indexer is misbehaving.
+      responses:
+        "200":
+          description: Hash comparison result
 
   # ---------------------------------------------------------------------------
   # Job Queue Admin
@@ -2349,11 +2598,182 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    IndexerLagging:
+      description: >
+        The indexer is more than INDEXER_LAG_THRESHOLD_LEDGERS behind the
+        network, so this route cannot return a trustworthy answer right now.
+        Retry after the number of seconds in the `Retry-After` header (60s,
+        matching the indexer lag poll interval).
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+            example: 60
+        X-QuickEx-Indexer-Lag-Ledgers:
+          $ref: "#/components/headers/IndexerLagLedgers"
+        X-QuickEx-Indexer-Last-Ledger:
+          $ref: "#/components/headers/IndexerLastLedger"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: INDEXER_LAGGING
+              message: >-
+                Indexer is currently lagging behind the network. Risky
+                operations are temporarily disabled. Please retry later.
+              details:
+                currentNetworkLedger: 5000
+                lastIndexedLedger: 1000
+                lagLedgers: 4000
+                thresholdLedgers: 100
+                retryAfterSeconds: 60
+
+  # -------------------------------------------------------------------------
+  # Reusable Headers
+  #
+  # Emitted by the indexer lag guard (see docs/INDEXER-LAG-GUARD-ROUTES.md) on
+  # indexed-data routes while the indexer is behind the network. On
+  # `stale_header` routes they accompany a normal 200; on `fail_closed` routes
+  # they accompany the 503 described by the IndexerLagging response.
+  # -------------------------------------------------------------------------
+  headers:
+    IndexerLagLedgers:
+      description: >
+        How many ledgers the indexer was behind when this response was
+        produced. Only present while lag exceeds the configured threshold.
+      schema:
+        type: integer
+        example: 4000
+    IndexerLastLedger:
+      description: >
+        The last ledger the indexer had processed when this response was
+        produced. Only present while lag exceeds the configured threshold.
+      schema:
+        type: integer
+        example: 1000
 
   # -------------------------------------------------------------------------
   # Schemas
   # -------------------------------------------------------------------------
   schemas:
+    # --- Profile settings (#1151) ---
+    # Every presentation field is nullable: null means "not configured", which
+    # is distinct from an empty string.
+    ProfileCustomization:
+      type: object
+      properties:
+        primaryColor:
+          type: string
+          nullable: true
+          pattern: '^#[0-9a-fA-F]{6}$'
+          example: "#6366f1"
+          description: Accent colour, or null to use the app default
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          example: https://cdn.example.com/avatar/alice.png
+          description: Absolute https avatar URL, or null for the initial avatar
+        bio:
+          type: string
+          maxLength: 160
+          nullable: true
+          example: Building the future of payments on Stellar
+        twitterHandle:
+          type: string
+          maxLength: 15
+          nullable: true
+          example: stellarorg
+          description: Without the leading @
+        discordHandle:
+          type: string
+          maxLength: 32
+          nullable: true
+          example: user#1234
+        githubHandle:
+          type: string
+          maxLength: 39
+          nullable: true
+          example: stellar
+          description: Without the leading @
+
+    ProfileResponse:
+      allOf:
+        - $ref: "#/components/schemas/ProfileCustomization"
+        - type: object
+          required:
+            - id
+            - username
+            - publicKey
+            - isPublic
+            - createdAt
+          properties:
+            id:
+              type: string
+              format: uuid
+            username:
+              type: string
+              example: alice_123
+            publicKey:
+              type: string
+              description: Stellar public key of the wallet that owns the profile
+              example: GBXGQ55IMY5OMHDMZV5ZLX5XNRM3MHZJXUIBZ4QKOW3S6GXQ2KJQ2Q
+            isPublic:
+              type: boolean
+              example: true
+            createdAt:
+              type: string
+              format: date-time
+
+    UpdateProfileRequest:
+      type: object
+      required:
+        - username
+        - publicKey
+      properties:
+        username:
+          type: string
+          description: Locates the profile. Never renames it.
+          example: alice_123
+        publicKey:
+          type: string
+          description: Stellar public key of the wallet that owns the profile
+          example: GBXGQ55IMY5OMHDMZV5ZLX5XNRM3MHZJXUIBZ4QKOW3S6GXQ2KJQ2Q
+        primaryColor:
+          type: string
+          nullable: true
+          pattern: '^#[0-9a-fA-F]{6}$'
+          example: "#6366f1"
+          description: Omit to leave unchanged; null or "" to clear
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Omit to leave unchanged; null or "" to clear
+        bio:
+          type: string
+          maxLength: 160
+          nullable: true
+          description: Omit to leave unchanged; null or "" to clear
+        twitterHandle:
+          type: string
+          maxLength: 15
+          nullable: true
+          description: Omit to leave unchanged; null or "" to clear
+        discordHandle:
+          type: string
+          maxLength: 32
+          nullable: true
+          description: Omit to leave unchanged; null or "" to clear
+        githubHandle:
+          type: string
+          maxLength: 39
+          nullable: true
+          description: Omit to leave unchanged; null or "" to clear
+
     # --- Error ---
     ErrorResponse:
       type: object

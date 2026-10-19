@@ -1,3 +1,4 @@
+import { WalletRequestAuthService } from "../../auth/wallet-request-auth.service";
 import { Test, TestingModule } from "@nestjs/testing";
 import { NotificationPreferencesController } from "../notification-preferences.controller";
 import { NotificationPreferencesRepository } from "../notification-preferences.repository";
@@ -36,6 +37,7 @@ describe("NotificationPreferencesController", () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [NotificationPreferencesController],
       providers: [
+        WalletRequestAuthService,
         { provide: NotificationPreferencesRepository, useValue: repo },
       ],
     }).compile();

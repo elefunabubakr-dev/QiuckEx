@@ -98,7 +98,7 @@ export default function EditContactScreen() {
         <Text style={[styles.label, { color: theme.textSecondary }]}>Wallet Address *</Text>
         <TextInput
           style={[styles.input, { borderColor: theme.inputBorder, backgroundColor: theme.inputBg, color: theme.inputText }]}
-          placeholder="0x..."
+          placeholder="G..."
           placeholderTextColor={theme.inputPlaceholder}
           value={address}
           onChangeText={setAddress}

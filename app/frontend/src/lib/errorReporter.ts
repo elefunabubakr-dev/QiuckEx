@@ -14,9 +14,9 @@ const CARD_RE = /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g;
 export function redactPII(value: unknown): unknown {
   if (typeof value === "string") {
     return value
+      .replace(CARD_RE, "[REDACTED_CARD]")
       .replace(EMAIL_RE, "[REDACTED_EMAIL]")
-      .replace(PHONE_RE, "[REDACTED_PHONE]")
-      .replace(CARD_RE, "[REDACTED_CARD]");
+      .replace(PHONE_RE, "[REDACTED_PHONE]");
   }
 
   if (Array.isArray(value)) {

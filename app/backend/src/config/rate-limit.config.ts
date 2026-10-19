@@ -1,8 +1,10 @@
 export type RateLimitGroup = "public" | "authenticated" | "webhooks";
+export type RateLimitTier = "public-read" | "search" | "mutation" | "export";
 export type RateLimitWindow = "burst" | "sustained";
 export type RateLimitKeyType = "user_id" | "api_key" | "ip";
 
 export const RATE_LIMIT_GROUP_METADATA_KEY = "rate_limit_group";
+export const RATE_LIMIT_TIER_METADATA_KEY = "rate_limit_tier";
 export const THROTTLER_BURST_NAME = "burst";
 export const THROTTLER_SUSTAINED_NAME = "sustained";
 
@@ -16,8 +18,14 @@ type GroupConfig = {
   sustained: GroupWindowConfig;
 };
 
+type TierConfig = {
+  burst: GroupWindowConfig;
+  sustained: GroupWindowConfig;
+};
+
 export type RateLimitConfig = {
   groups: Record<RateLimitGroup, GroupConfig>;
+  tiers: Record<RateLimitTier, TierConfig>;
   keyOrder: RateLimitKeyType[];
   allowlist: {
     cidrs: string[];
@@ -26,7 +34,7 @@ export type RateLimitConfig = {
   };
 };
 
-const DEFAULT_KEY_ORDER: RateLimitKeyType[] = ["user_id", "api_key", "ip"];
+const DEFAULT_KEY_ORDER: RateLimitKeyType[] = ["api_key", "user_id", "ip"];
 
 function parseKeyOrder(raw?: string): RateLimitKeyType[] {
   if (!raw) return DEFAULT_KEY_ORDER;
@@ -55,6 +63,15 @@ const TESTNET_PUBLIC_BURST_LIMIT = 20;
 const TESTNET_PUBLIC_SUSTAINED_LIMIT = 60;
 const TESTNET_AUTH_BURST_LIMIT = 80;
 const TESTNET_AUTH_SUSTAINED_LIMIT = 240;
+
+const TESTNET_TIER_PUBLIC_READ_BURST_LIMIT = 40;
+const TESTNET_TIER_PUBLIC_READ_SUSTAINED_LIMIT = 120;
+const TESTNET_TIER_SEARCH_BURST_LIMIT = 20;
+const TESTNET_TIER_SEARCH_SUSTAINED_LIMIT = 60;
+const TESTNET_TIER_MUTATION_BURST_LIMIT = 30;
+const TESTNET_TIER_MUTATION_SUSTAINED_LIMIT = 90;
+const TESTNET_TIER_EXPORT_BURST_LIMIT = 5;
+const TESTNET_TIER_EXPORT_SUSTAINED_LIMIT = 15;
 
 export const throttlerConfig: RateLimitConfig = {
   groups: {
@@ -100,6 +117,48 @@ export const throttlerConfig: RateLimitConfig = {
         ttlMs: Number(
           process.env["RATE_LIMIT_WEBHOOKS_SUSTAINED_TTL_MS"] ?? 60_000,
         ),
+      },
+    },
+  },
+  tiers: {
+    "public-read": {
+      burst: {
+        limit: Number(process.env["RATE_LIMIT_TIER_PUBLIC_READ_BURST_LIMIT"] ?? (isTestnet ? TESTNET_TIER_PUBLIC_READ_BURST_LIMIT : 20)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_PUBLIC_READ_BURST_TTL_MS"] ?? 10_000),
+      },
+      sustained: {
+        limit: Number(process.env["RATE_LIMIT_TIER_PUBLIC_READ_SUSTAINED_LIMIT"] ?? (isTestnet ? TESTNET_TIER_PUBLIC_READ_SUSTAINED_LIMIT : 60)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_PUBLIC_READ_SUSTAINED_TTL_MS"] ?? 60_000),
+      },
+    },
+    search: {
+      burst: {
+        limit: Number(process.env["RATE_LIMIT_TIER_SEARCH_BURST_LIMIT"] ?? (isTestnet ? TESTNET_TIER_SEARCH_BURST_LIMIT : 10)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_SEARCH_BURST_TTL_MS"] ?? 10_000),
+      },
+      sustained: {
+        limit: Number(process.env["RATE_LIMIT_TIER_SEARCH_SUSTAINED_LIMIT"] ?? (isTestnet ? TESTNET_TIER_SEARCH_SUSTAINED_LIMIT : 30)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_SEARCH_SUSTAINED_TTL_MS"] ?? 60_000),
+      },
+    },
+    mutation: {
+      burst: {
+        limit: Number(process.env["RATE_LIMIT_TIER_MUTATION_BURST_LIMIT"] ?? (isTestnet ? TESTNET_TIER_MUTATION_BURST_LIMIT : 15)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_MUTATION_BURST_TTL_MS"] ?? 10_000),
+      },
+      sustained: {
+        limit: Number(process.env["RATE_LIMIT_TIER_MUTATION_SUSTAINED_LIMIT"] ?? (isTestnet ? TESTNET_TIER_MUTATION_SUSTAINED_LIMIT : 45)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_MUTATION_SUSTAINED_TTL_MS"] ?? 60_000),
+      },
+    },
+    export: {
+      burst: {
+        limit: Number(process.env["RATE_LIMIT_TIER_EXPORT_BURST_LIMIT"] ?? (isTestnet ? TESTNET_TIER_EXPORT_BURST_LIMIT : 3)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_EXPORT_BURST_TTL_MS"] ?? 10_000),
+      },
+      sustained: {
+        limit: Number(process.env["RATE_LIMIT_TIER_EXPORT_SUSTAINED_LIMIT"] ?? (isTestnet ? TESTNET_TIER_EXPORT_SUSTAINED_LIMIT : 10)),
+        ttlMs: Number(process.env["RATE_LIMIT_TIER_EXPORT_SUSTAINED_TTL_MS"] ?? 60_000),
       },
     },
   },

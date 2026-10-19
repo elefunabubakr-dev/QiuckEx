@@ -16,7 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
-import { RateLimitGroupTag } from '../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 import {
   SeedResetOptionsDto,
   SeedResetReportDto,
@@ -34,6 +34,8 @@ import { DemoSeedResult, DemoClearResult } from './demo.service';
 })
 @RateLimitGroupTag('authenticated')
 @UseGuards(ApiKeyGuard)
+// `seed-reset` is the canonical prefix; `api/seed-reset` is a frozen compatibility
+// alias for clients already shipped against it — see docs/ROUTING-CONVENTIONS.md.
 @Controller(['seed-reset', 'api/seed-reset'])
 export class SeedResetController {
   private readonly logger = new Logger(SeedResetController.name);
@@ -44,6 +46,7 @@ export class SeedResetController {
   ) {}
 
   @Post('trigger')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -61,6 +64,7 @@ export class SeedResetController {
   }
 
   @Post('force')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -77,6 +81,7 @@ export class SeedResetController {
   }
 
   @Get('status')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({
     summary: 'Get seed reset scheduler status',
@@ -95,6 +100,7 @@ export class SeedResetController {
   }
 
   @Get('running')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({
     summary: 'Check if a reset is currently running',
@@ -106,6 +112,7 @@ export class SeedResetController {
   }
 
   @Post('seed')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -120,6 +127,7 @@ export class SeedResetController {
   }
 
   @Post('clear')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -134,6 +142,7 @@ export class SeedResetController {
   }
 
   @Get('status/data')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({
     summary: 'Get current demo data status',

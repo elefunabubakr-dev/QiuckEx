@@ -2,6 +2,7 @@ import { ExecutionContext, ForbiddenException, UnauthorizedException } from "@ne
 import { Reflector } from "@nestjs/core";
 import { ApiKeyGuard } from "./api-key.guard";
 import { ApiKeysService } from "../../api-keys/api-keys.service";
+import { REQUIRE_API_KEY_KEY } from "../decorators/require-api-key.decorator";
 import { Test } from "@nestjs/testing";
 import { Request } from "express";
 
@@ -173,5 +174,96 @@ describe("ApiKeyGuard", () => {
 
     expect(result).toBe(true);
     expect(hasScopeMock).not.toHaveBeenCalled();
+  });
+
+  describe("@RequireApiKey() enforcement", () => {
+    afterEach(() => {
+      mockReflector.getAllAndOverride.mockReset();
+      mockReflector.getAllAndOverride.mockReturnValue([]);
+    });
+
+    /** Reflect `@RequireApiKey()` on the handler and nothing else. */
+    function markRequireApiKey() {
+      mockReflector.getAllAndOverride.mockImplementation(
+        (key: string) => (key === REQUIRE_API_KEY_KEY ? true : []),
+      );
+    }
+
+    it("rejects a keyless request with 401 when the route requires an API key", async () => {
+      markRequireApiKey();
+
+      const { ctx } = makeContext();
+
+      await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
+      expect(mockApiKeysService.validateKey).not.toHaveBeenCalled();
+    });
+
+    it("returns a MISSING_API_KEY error payload", async () => {
+      markRequireApiKey();
+
+      const { ctx } = makeContext();
+
+      await expect(guard.canActivate(ctx)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error: "MISSING_API_KEY",
+        }),
+      });
+    });
+
+    it("rejects an empty x-api-key header as missing", async () => {
+      markRequireApiKey();
+
+      const { ctx } = makeContext({ "x-api-key": "" });
+
+      await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("still allows keyless access when the route is not marked", async () => {
+      mockReflector.getAllAndOverride.mockImplementation(() => undefined);
+
+      const { ctx } = makeContext();
+
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it("does not enforce for metadata values other than true", async () => {
+      // Strict comparison: an empty array or any other value is not a request
+      // for strict enforcement, and must not lock a public route down.
+      mockReflector.getAllAndOverride.mockImplementation(() => []);
+
+      const { ctx } = makeContext();
+
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it("still validates and authorizes a key that is present", async () => {
+      markRequireApiKey();
+      mockApiKeysService.validateKey.mockResolvedValue({
+        record: {
+          id: "api-key-id",
+          name: "test key",
+          scopes: ["admin"],
+          request_count: 0,
+          monthly_quota: 1000,
+        },
+        hasScope: (s: string) => s === "admin",
+      });
+
+      const { ctx, req } = makeContext({ "x-api-key": "admin-key" });
+
+      const result = await guard.canActivate(ctx);
+
+      expect(result).toBe(true);
+      expect(req.apiKey).toBeDefined();
+    });
+
+    it("still rejects an invalid key with 401", async () => {
+      markRequireApiKey();
+      mockApiKeysService.validateKey.mockResolvedValue(null);
+
+      const { ctx } = makeContext({ "x-api-key": "bad-key" });
+
+      await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
+    });
   });
 });

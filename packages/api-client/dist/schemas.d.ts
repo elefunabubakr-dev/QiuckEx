@@ -168,6 +168,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the editable profile for a wallet
+         * @description Returns the presentation fields shown on the settings page. Works for a private profile too, since the owner still needs to see their own values.
+         */
+        get: operations["getProfile"];
+        /**
+         * Update the editable profile for a wallet
+         * @description Partial update. Omit a field to leave it unchanged; send null or an empty string to clear it. `username` locates the profile and is never renamed, because renaming cascades into `username_marketplace` and would delete the owner's listings.
+         */
+        put: operations["updateProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/links/metadata": {
         parameters: {
             query?: never;
@@ -228,7 +252,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/links/scan": {
+    "/scam-alerts/scan": {
         parameters: {
             query?: never;
             header?: never;
@@ -1206,6 +1230,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/transaction-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the aggregated timeline for a transaction
+         * @description Every event kind on this route is read from indexed tables, so a partially-written timeline would read as "this transaction did fewer things than it did". The route therefore fails closed while the indexer is behind.
+         */
+        get: operations["getTransactionTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard-feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the unified activity feed
+         * @description The feed is a browse surface ordered newest-first, so it is served while lagging and annotated with the staleness headers rather than rejected.
+         */
+        get: operations["getDashboardFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts/tx/{txHash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a normalized receipt for a transaction
+         * @description Joins live Horizon/RPC data against the indexed receipts table, so it fails closed while the indexer is behind rather than returning a receipt with silently missing indexed metadata.
+         */
+        get: operations["getReceiptByTxHash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts/address/{address}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List normalized receipts for an address
+         * @description A browse surface ordered newest-first, so it is served while lagging and annotated with the staleness headers.
+         */
+        get: operations["getReceiptsByAddress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts/verify-hash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify a receipt hash against canonical inputs
+         * @description Deliberately not protected by the indexer lag guard: it is a pure function of the caller's own body, so indexer state cannot make its answer wrong, and callers must be able to verify integrity precisely when the indexer is misbehaving.
+         */
+        post: operations["verifyReceiptHash"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/jobs": {
         parameters: {
             query?: never;
@@ -1557,6 +1681,78 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ProfileCustomization: {
+            /**
+             * @description Accent colour, or null to use the app default
+             * @example #6366f1
+             */
+            primaryColor?: string | null;
+            /**
+             * Format: uri
+             * @description Absolute https avatar URL, or null for the initial avatar
+             * @example https://cdn.example.com/avatar/alice.png
+             */
+            avatarUrl?: string | null;
+            /** @example Building the future of payments on Stellar */
+            bio?: string | null;
+            /**
+             * @description Without the leading @
+             * @example stellarorg
+             */
+            twitterHandle?: string | null;
+            /** @example user#1234 */
+            discordHandle?: string | null;
+            /**
+             * @description Without the leading @
+             * @example stellar
+             */
+            githubHandle?: string | null;
+        };
+        ProfileResponse: components["schemas"]["ProfileCustomization"] & {
+            /** Format: uuid */
+            id: string;
+            /** @example alice_123 */
+            username: string;
+            /**
+             * @description Stellar public key of the wallet that owns the profile
+             * @example GBXGQ55IMY5OMHDMZV5ZLX5XNRM3MHZJXUIBZ4QKOW3S6GXQ2KJQ2Q
+             */
+            publicKey: string;
+            /** @example true */
+            isPublic: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        UpdateProfileRequest: {
+            /**
+             * @description Locates the profile. Never renames it.
+             * @example alice_123
+             */
+            username: string;
+            /**
+             * @description Stellar public key of the wallet that owns the profile
+             * @example GBXGQ55IMY5OMHDMZV5ZLX5XNRM3MHZJXUIBZ4QKOW3S6GXQ2KJQ2Q
+             */
+            publicKey: string;
+            /**
+             * @description Omit to leave unchanged; null or "" to clear
+             * @example #6366f1
+             */
+            primaryColor?: string | null;
+            /**
+             * Format: uri
+             * @description Omit to leave unchanged; null or "" to clear
+             */
+            avatarUrl?: string | null;
+            /** @description Omit to leave unchanged; null or "" to clear */
+            bio?: string | null;
+            /** @description Omit to leave unchanged; null or "" to clear */
+            twitterHandle?: string | null;
+            /** @description Omit to leave unchanged; null or "" to clear */
+            discordHandle?: string | null;
+            /** @description Omit to leave unchanged; null or "" to clear */
+            githubHandle?: string | null;
+        };
         ErrorResponse: {
             /** @example false */
             success?: boolean;
@@ -2229,13 +2425,46 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description The indexer is more than INDEXER_LAG_THRESHOLD_LEDGERS behind the network, so this route cannot return a trustworthy answer right now. Retry after the number of seconds in the `Retry-After` header (60s, matching the indexer lag poll interval). */
+        IndexerLagging: {
+            headers: {
+                /** @description Seconds to wait before retrying. */
+                "Retry-After"?: number;
+                "X-QuickEx-Indexer-Lag-Ledgers": components["headers"]["IndexerLagLedgers"];
+                "X-QuickEx-Indexer-Last-Ledger": components["headers"]["IndexerLastLedger"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "INDEXER_LAGGING",
+                 *         "message": "Indexer is currently lagging behind the network. Risky operations are temporarily disabled. Please retry later.",
+                 *         "details": {
+                 *           "currentNetworkLedger": 5000,
+                 *           "lastIndexedLedger": 1000,
+                 *           "lagLedgers": 4000,
+                 *           "thresholdLedgers": 100,
+                 *           "retryAfterSeconds": 60
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
     };
     parameters: {
         /** @description Recurring payment link ID */
         RecurringLinkId: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description How many ledgers the indexer was behind when this response was produced. Only present while lag exceeds the configured threshold. */
+        IndexerLagLedgers: number;
+        /** @description The last ledger the indexer had processed when this response was produced. Only present while lag exceeds the configured threshold. */
+        IndexerLastLedger: number;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -2503,6 +2732,78 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getProfile: {
+        parameters: {
+            query: {
+                /** @example alice_123 */
+                username: string;
+                /**
+                 * @description Stellar public key of the wallet that owns the profile
+                 * @example GBXGQ55IMY5OMHDMZV5ZLX5XNRM3MHZJXUIBZ4QKOW3S6GXQ2KJQ2Q
+                 */
+                publicKey: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description No such profile, or it is owned by a different wallet */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description The profile as persisted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description No such profile, or it is owned by a different wallet */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     generateLinkMetadata: {
@@ -3835,7 +4136,12 @@ export interface operations {
     handleKycCallback: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description HMAC-SHA256 signature of the payload (e.g. sha256=<hex>) */
+                "X-Anchor-Signature"?: string;
+                /** @description Shared secret issued to the anchor */
+                "X-Anchor-Secret"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3848,12 +4154,24 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Missing or invalid webhook signature or secret */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     updateTransactionStatus: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description HMAC-SHA256 signature of the payload (e.g. sha256=<hex>) */
+                "X-Anchor-Signature"?: string;
+                /** @description Shared secret issued to the anchor */
+                "X-Anchor-Secret"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3861,6 +4179,13 @@ export interface operations {
         responses: {
             /** @description Status updated */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid webhook signature or secret */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4121,6 +4446,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: components["responses"]["IndexerLagging"];
         };
     };
     triggerReconciliation: {
@@ -4146,6 +4472,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: components["responses"]["IndexerLagging"];
         };
     };
     startBackfill: {
@@ -4175,6 +4502,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: components["responses"]["IndexerLagging"];
         };
     };
     getBackfillStatus: {
@@ -4187,6 +4515,116 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Backfill progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["IndexerLagging"];
+        };
+    };
+    getTransactionTimeline: {
+        parameters: {
+            query: {
+                txHash: string;
+                address?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ordered timeline (may be partial when a source fails) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["IndexerLagging"];
+        };
+    };
+    getDashboardFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Activity feed */
+            200: {
+                headers: {
+                    "X-QuickEx-Indexer-Lag-Ledgers": components["headers"]["IndexerLagLedgers"];
+                    "X-QuickEx-Indexer-Last-Ledger": components["headers"]["IndexerLastLedger"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["IndexerLagging"];
+        };
+    };
+    getReceiptByTxHash: {
+        parameters: {
+            query?: {
+                operationIndex?: number;
+            };
+            header?: never;
+            path: {
+                txHash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Normalized receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["IndexerLagging"];
+        };
+    };
+    getReceiptsByAddress: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                address: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated receipt list */
+            200: {
+                headers: {
+                    "X-QuickEx-Indexer-Lag-Ledgers": components["headers"]["IndexerLagLedgers"];
+                    "X-QuickEx-Indexer-Last-Ledger": components["headers"]["IndexerLastLedger"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verifyReceiptHash: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hash comparison result */
             200: {
                 headers: {
                     [name: string]: unknown;

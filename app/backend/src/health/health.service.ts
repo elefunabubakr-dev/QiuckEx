@@ -249,18 +249,25 @@ export class HealthService {
   }
 
   /**
-   * Checks ingestion/indexer lag by comparing cursor timestamp with current time.
+   * Checks ingestion lag by comparing the newest cursor's update time to now.
+   *
+   * The lag is derived from the cursor's actual `updated_at` timestamp and is
+   * compared against a configured threshold, mirroring the strict `>` semantics
+   * used by IndexerLagService (`lag > threshold` means lagging). A stale cursor
+   * is reported as `degraded`; an unreadable cursor is reported as `down`.
    */
   async checkIngestionLag(): Promise<{
-    status: "up" | "down";
+    status: DependencyStatus;
     lagSeconds?: number;
     details?: string;
     lastSuccess?: string;
   }> {
+    const thresholdSeconds = this.config.ingestionLagThresholdSeconds;
+
     try {
-      // Get the most recent cursor for any contract stream
-      const streamId = "contract:*"; // Generic check for any contract
-      const cursor = await this.cursorRepository.getCursor(streamId);
+      // Cursors are stored per contract as `contract:<contractId>`, so the
+      // most recently updated one is used as the pipeline's progress marker.
+      const cursor = await this.cursorRepository.getLatestContractCursor();
 
       if (!cursor) {
         return {
@@ -271,13 +278,35 @@ export class HealthService {
         };
       }
 
-      // Calculate lag based on cursor update time
-      // For a more accurate check, we would need to track the last cursor update timestamp
-      // For now, we'll check if we can read cursors successfully
+      const lastUpdatedMs = Date.parse(cursor.updated_at);
+      if (Number.isNaN(lastUpdatedMs)) {
+        return {
+          status: "down",
+          details: "Ingestion cursor has an invalid updated_at timestamp",
+        };
+      }
+
+      // Clamp to 0 so clock skew on the database host cannot report negative lag.
+      const lagSeconds = Math.max(
+        0,
+        Math.floor((Date.now() - lastUpdatedMs) / 1000),
+      );
+      const lastSuccess = new Date(lastUpdatedMs).toISOString();
+
+      if (lagSeconds > thresholdSeconds) {
+        return {
+          status: "degraded",
+          lagSeconds,
+          details: `Ingestion cursor is ${lagSeconds}s behind (threshold ${thresholdSeconds}s)`,
+          lastSuccess,
+        };
+      }
+
       return {
         status: "up",
-        lagSeconds: 0,
-        lastSuccess: new Date().toISOString(),
+        lagSeconds,
+        details: `Ingestion cursor is ${lagSeconds}s behind (threshold ${thresholdSeconds}s)`,
+        lastSuccess,
       };
     } catch (err) {
       const safeMessage = sanitizeErrorMessage((err as Error).message);
@@ -372,13 +401,16 @@ export class HealthService {
     // A hard failure (down) means the app cannot serve traffic safely.
     // A degraded dependency (e.g. timed out) is reported separately so that
     // transient slowness is distinguishable from a real outage.
+    // Ingestion is deliberately excluded from the hard-failure gate: a stale or
+    // unreadable cursor still leaves reads servable, so it only contributes to
+    // the degraded signal.
     const criticalChecks = [supabase, migrations, queue, horizon, sorobanRpc];
     const hasHardFailure = criticalChecks.some(
       (check) => check.status === "down",
     );
-    const degraded = criticalChecks.some(
-      (check) => check.status === "degraded",
-    );
+    const degraded =
+      criticalChecks.some((check) => check.status === "degraded") ||
+      ingestion.status !== "up";
     const ready = !hasHardFailure;
 
     return {
@@ -431,6 +463,7 @@ export class HealthService {
           name: "ingestion",
           status: ingestion.status,
           lagSeconds: ingestion.lagSeconds,
+          details: ingestion.details,
           lastSuccess: ingestion.lastSuccess,
           error: ingestion.status === "down" ? ingestion.details : undefined,
         },
@@ -450,9 +483,14 @@ export class HealthService {
       this.checkIngestionLag(),
     ]);
 
-    // Determine overall status based on critical external dependencies
-    const allUp = horizon.status === "up" && sorobanRpc.status === "up";
+    // Determine overall status based on critical external dependencies.
+    // Ingestion can only lower the overall status to "degraded": a stale
+    // pipeline still serves reads, so it is not a platform-wide outage.
     const someDown = horizon.status === "down" || sorobanRpc.status === "down";
+    const allUp =
+      horizon.status === "up" &&
+      sorobanRpc.status === "up" &&
+      ingestion.status === "up";
 
     const overallStatus = allUp
       ? "operational"
@@ -463,15 +501,13 @@ export class HealthService {
     // Get network info (safe to expose)
     const network = this.config.network || "unknown";
 
-    // Try to get last ledger from ingestion cursor (default to 0 if not available)
+    // Report the last processed ledger from the newest contract cursor.
+    // Cursors are stored per contract (`contract:<contractId>`), so the
+    // literal "contract:*" id used previously never resolved a row.
     let lastLedger = 0;
     try {
-      const cursor = await this.cursorRepository.getCursor("contract:*");
-      if (cursor) {
-        // Cursor format is typically "startLedger-endLedger" or just a ledger number
-        const parts = cursor.split("-");
-        lastLedger = parseInt(parts[parts.length - 1], 10) || 0;
-      }
+      const cursor = await this.cursorRepository.getLatestContractCursor();
+      lastLedger = cursor?.ledger_sequence ?? 0;
     } catch {
       // Silently fail - not critical for public status
       lastLedger = 0;
@@ -495,7 +531,12 @@ export class HealthService {
         },
         {
           name: "ingestion",
-          status: ingestion.status === "up" ? "operational" : "degraded",
+          status:
+            ingestion.status === "up"
+              ? "operational"
+              : ingestion.status === "degraded"
+                ? "degraded"
+                : "down",
         },
       ],
     };

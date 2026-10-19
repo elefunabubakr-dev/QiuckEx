@@ -54,6 +54,10 @@ export function buildCorsOptions(env: {
       "Authorization",
       "x-correlation-id",
       "X-API-Key",
+      "X-Wallet-Public-Key",
+      "X-Wallet-Challenge",
+      "X-Wallet-Signature",
+      "X-Device-Installation-Id",
     ],
   };
 }

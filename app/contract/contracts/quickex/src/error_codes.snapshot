@@ -47,3 +47,4 @@ InternalError=900
 InvalidTimeout=901
 NonceAlreadyUsed=500
 SignatureExpired=501
+OracleSourceLimitExceeded=606

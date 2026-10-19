@@ -6,7 +6,11 @@ jest.mock('@stellar/stellar-sdk', () => {
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
         cursor: jest.fn().mockReturnThis(),
+        accounts: jest.fn().mockReturnThis(),
+        accountId: jest.fn().mockReturnThis(),
+        payments: jest.fn().mockReturnThis(),
         call: jest.fn(),
+        httpClient: { defaults: {} },
     };
     
     return {
@@ -21,6 +25,9 @@ import { HorizonService } from './horizon.service';
 import { AppConfigService } from '../config/app-config.service';
 import { HttpException, HttpStatus } from '@nestjs/common';
 
+// The new helpers issue real fetch() calls; mock them for the whole suite.
+global.fetch = jest.fn();
+
 describe('HorizonService', () => {
     let service: HorizonService;
     let mockServer: Record<string, jest.Mock>;
@@ -30,6 +37,7 @@ describe('HorizonService', () => {
             network: 'testnet',
             cacheMaxItems: 500,
             cacheTtlMs: 60000,
+            horizonRequestTimeoutMs: 10000,
         };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -181,6 +189,243 @@ describe('HorizonService', () => {
             expect(result.items).toHaveLength(1);
             expect(result.items[0].asset).toBe('USDC:GUSDC');
             expect(result.items[0].amount).toBe('2.0');
+        });
+    });
+
+    describe('request timeout configuration', () => {
+        it('applies HORIZON_REQUEST_TIMEOUT_MS to the SDK HTTP client', () => {
+            const server = service['server'] as unknown as {
+                httpClient: { defaults: { timeout?: number } };
+            };
+
+            expect(server.httpClient.defaults.timeout).toBe(10000);
+        });
+    });
+
+    describe('getAccount', () => {
+        const accountId = 'GNEWLYCREATEDACCOUNT123456789ABCDEFGHIJKLMN';
+
+        it('fetches the account through a timed fetch', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    account_id: accountId,
+                    created_at: '2026-10-01T00:00:00Z',
+                }),
+            } as Response);
+
+            const result = await service.getAccount(accountId);
+
+            expect(result).toEqual({
+                account_id: accountId,
+                created_at: '2026-10-01T00:00:00Z',
+            });
+            expect(global.fetch as jest.Mock).toHaveBeenCalledWith(
+                `https://horizon-testnet.stellar.org/accounts/${accountId}`,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
+        });
+
+        it('returns null when the account does not exist (404)', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+            } as Response);
+
+            await expect(service.getAccount(accountId)).resolves.toBeNull();
+        });
+
+        it('maps error statuses onto the shared Horizon error handling', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 429,
+            } as Response);
+
+            await expect(service.getAccount(accountId)).rejects.toThrow(
+                new HttpException(
+                    'Horizon service rate limit exceeded. Please try again later.',
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                ),
+            );
+        });
+
+        it('aborts a hanging request at the configured timeout', async () => {
+            jest.useFakeTimers();
+            try {
+                (global.fetch as jest.Mock).mockImplementationOnce(
+                    (_url: unknown, init?: { signal?: AbortSignal }) =>
+                        new Promise((_resolve, reject) => {
+                            init?.signal?.addEventListener('abort', () =>
+                                reject(
+                                    new DOMException(
+                                        'This operation was aborted',
+                                        'AbortError',
+                                    ),
+                                ),
+                            );
+                        }),
+                );
+
+                const pending = service.getAccount(accountId).catch((error) => error);
+                await jest.advanceTimersByTimeAsync(10000);
+                const error = await pending;
+
+                expect(error).toBeInstanceOf(Error);
+                expect(error.message).toBe(
+                    'Horizon request timed out after 10000ms',
+                );
+            } finally {
+                jest.useRealTimers();
+            }
+        });
+    });
+
+    describe('getPaymentsSince', () => {
+        const accountId = 'GPAYMENTSHISTORYACCOUNT123456789ABCDEFGHIJKLM';
+        const since = '2026-10-17T09:00:00.000Z';
+
+        it('requests payments created after the cutoff through a timed fetch', async () => {
+            const records = [
+                {
+                    type: 'payment',
+                    amount: '5.0',
+                    asset_type: 'native',
+                    created_at: '2026-10-17T09:30:00Z',
+                },
+                {
+                    type: 'create_account',
+                    created_at: '2026-10-17T09:20:00Z',
+                },
+            ];
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ _embedded: { records } }),
+            } as Response);
+
+            const result = await service.getPaymentsSince(accountId, since);
+
+            expect(result).toEqual(records);
+            expect(global.fetch as jest.Mock).toHaveBeenCalledWith(
+                `https://horizon-testnet.stellar.org/accounts/${accountId}/payments` +
+                    `?limit=100&order=desc&created_at:gt=${encodeURIComponent(since)}`,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
+        });
+
+        it('honours a custom limit', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ _embedded: { records: [] } }),
+            } as Response);
+
+            await service.getPaymentsSince(accountId, since, 25);
+
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain(
+                'limit=25',
+            );
+        });
+
+        it('returns an empty list when the account has no payment history (404)', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+            } as Response);
+
+            await expect(service.getPaymentsSince(accountId, since)).resolves.toEqual([]);
+        });
+
+        it('maps error statuses onto the shared Horizon error handling', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 503,
+            } as Response);
+
+            await expect(service.getPaymentsSince(accountId, since)).rejects.toThrow(
+                new HttpException(
+                    'Horizon service temporarily unavailable. Please try again later.',
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                ),
+            );
+        });
+    });
+
+    describe('getTransactionByHash', () => {
+        const txHash =
+            'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0';
+
+        it('fetches transaction details by hash from Horizon', async () => {
+            const txRecord = {
+                id: txHash,
+                hash: txHash,
+                successful: true,
+                source_account: 'GBIDDER123',
+            };
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => txRecord,
+            } as Response);
+
+            const result = await service.getTransactionByHash(txHash);
+
+            expect(result).toEqual(txRecord);
+            expect(global.fetch as jest.Mock).toHaveBeenCalledWith(
+                `https://horizon-testnet.stellar.org/transactions/${txHash}`,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
+        });
+
+        it('returns null when transaction is not found on Horizon (404)', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+            } as Response);
+
+            await expect(service.getTransactionByHash(txHash)).resolves.toBeNull();
+        });
+    });
+
+    describe('getTransactionOperations', () => {
+        const txHash =
+            'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0';
+
+        it('fetches operations for a transaction hash from Horizon', async () => {
+            const ops = [
+                {
+                    type: 'payment',
+                    from: 'GBIDDER123',
+                    to: 'GSELLER456',
+                    amount: '150.0000000',
+                    asset_type: 'native',
+                },
+            ];
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ _embedded: { records: ops } }),
+            } as Response);
+
+            const result = await service.getTransactionOperations(txHash);
+
+            expect(result).toEqual(ops);
+            expect(global.fetch as jest.Mock).toHaveBeenCalledWith(
+                `https://horizon-testnet.stellar.org/transactions/${txHash}/operations?limit=100&order=asc`,
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
+        });
+
+        it('returns an empty list when transaction operations return 404', async () => {
+            (global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+            } as Response);
+
+            await expect(
+                service.getTransactionOperations(txHash),
+            ).resolves.toEqual([]);
         });
     });
 });

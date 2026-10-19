@@ -8,6 +8,10 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import {
+  EXCLUDE_PRIVACY_TELEMETRY_KEY,
+  isPrivacyDebugPath,
+} from '../../privacy/privacy-debug.guard';
 
 /**
  * LoggingInterceptor logs every HTTP request with full request context
@@ -38,19 +42,39 @@ export class LoggingInterceptor implements NestInterceptor {
     'seed',
     'private_key',
     'privateKey',
+    'privatekey',
+    'privateKeyPem',
+    'privatekeypem',
+    'private_key_pem',
+    'recipientViewPrivateKeyPem',
+    'recipientviewprivatekeypem',
+    'recipient_view_private_key_pem',
     'stellar_secret_key',
   ]);
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const handler = context.getHandler?.();
+    const targetClass = context.getClass?.();
+    const excludedByMetadata =
+      (handler && Reflect.getMetadata(EXCLUDE_PRIVACY_TELEMETRY_KEY, handler)) ||
+      (targetClass &&
+        Reflect.getMetadata(EXCLUDE_PRIVACY_TELEMETRY_KEY, targetClass));
+
     const request = context.switchToHttp().getRequest();
-    const { method, url, body, route } = request;
+    const { method, url, originalUrl, path, body, route } = request;
     const correlationId =
       (request as Record<string, unknown>)['correlationId'] || 'N/A';
     const userId = this.extractUserId(request);
     const routePath = route?.path || url;
     const now = Date.now();
 
-    const sanitizedBody = this.sanitise(body);
+    const isExcludedDebugRoute =
+      Boolean(excludedByMetadata) ||
+      isPrivacyDebugPath(originalUrl ?? url ?? path ?? routePath);
+
+    const sanitizedBody = isExcludedDebugRoute
+      ? undefined
+      : this.sanitise(body);
 
     return next.handle().pipe(
       tap({
@@ -64,7 +88,7 @@ export class LoggingInterceptor implements NestInterceptor {
               method,
               url,
               duration: `${duration}ms`,
-              body: sanitizedBody,
+              ...(sanitizedBody !== undefined ? { body: sanitizedBody } : {}),
               status: 'success',
             }),
           );

@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { isPrivacyDebugPath } from '../privacy/privacy-debug.guard';
 import { CrashReportingService } from './crash-reporting.service';
 
 /**
@@ -37,21 +38,28 @@ export class CrashCaptureFilter implements ExceptionFilter {
     // Extract user ID from request (adjust based on your auth implementation)
     const userId = (request as Record<string, unknown>).user?.['id'] || (request as Record<string, unknown>).userId;
 
-    // Capture crash report (only if user has opted in)
-    try {
-      const context = {
-        method: request.method,
-        url: request.url,
-        statusCode: status,
-        userAgent: request.headers['user-agent'],
-        // Don't include headers or body as they may contain sensitive data
-        // The redaction service will handle any sensitive data in the error message
-      };
+    // #1215: Exclude stealth privacy debug endpoints from crash-reporting capture
+    const isExcludedDebugRoute = isPrivacyDebugPath(
+      request.originalUrl ?? request.url ?? request.path,
+    );
 
-      await this.crashReportingService.captureCrash(userId, error, context);
-    } catch (captureError) {
-      // Don't let crash capture itself cause issues
-      this.logger.error('Failed to capture crash', captureError);
+    // Capture crash report (only if user has opted in and route is not excluded)
+    if (!isExcludedDebugRoute) {
+      try {
+        const context = {
+          method: request.method,
+          url: request.url,
+          statusCode: status,
+          userAgent: request.headers['user-agent'],
+          // Don't include headers or body as they may contain sensitive data
+          // The redaction service will handle any sensitive data in the error message
+        };
+
+        await this.crashReportingService.captureCrash(userId, error, context);
+      } catch (captureError) {
+        // Don't let crash capture itself cause issues
+        this.logger.error('Failed to capture crash', captureError);
+      }
     }
 
     // Send response

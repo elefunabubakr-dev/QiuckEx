@@ -39,8 +39,10 @@ use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, 
 
 use crate::{
     assert_helpers::{assert_escrow_pending, assert_escrow_refunded, assert_escrow_spent},
+    errors::QuickexError,
+    stealth, storage,
     test_context::TestContext,
-    types::HookEventKind,
+    types::{HookEventKind, StealthDepositParams},
     QuickexContractClient,
 };
 
@@ -428,4 +430,327 @@ fn test_reentrant_withdraw_during_refund_is_rejected() {
     );
     assert_escrow_spent(&ctx.client, &commitment2);
     assert_eq!(ctx.balance(&ctx.bob), 500);
+}
+
+// ---------------------------------------------------------------------------
+// Reentrant stealth deposit hook: fires during Create/Settle/Refund and
+// attempts to call `register_ephemeral_key`.
+// ---------------------------------------------------------------------------
+
+#[contract]
+pub struct ReentrantStealthDepositHook;
+
+#[contractimpl]
+impl ReentrantStealthDepositHook {
+    #[allow(clippy::too_many_arguments)]
+    pub fn init(
+        env: Env,
+        target: Address,
+        sender: Address,
+        token: Address,
+        amount: i128,
+        eph_pub: BytesN<32>,
+        spend_pub: BytesN<32>,
+        stealth_address: BytesN<32>,
+        target_event: u32,
+    ) {
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("target"), &target);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("sender"), &sender);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("token"), &token);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("amount"), &amount);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("eph_pub"), &eph_pub);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("spend_pub"), &spend_pub);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("stealth"), &stealth_address);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("event"), &target_event);
+    }
+
+    pub fn on_escrow_event(
+        env: Env,
+        event_kind: u32,
+        _escrow_id: BytesN<32>,
+        _owner: Address,
+        _token: Address,
+        _amount: i128,
+        _fee: i128,
+    ) {
+        let target_event: u32 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("event"))
+            .unwrap_or(HookEventKind::Create as u32);
+        if event_kind != target_event {
+            return;
+        }
+
+        let target: Address = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("target"))
+            .unwrap();
+        let sender: Address = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("sender"))
+            .unwrap();
+        let token: Address = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("token"))
+            .unwrap();
+        let amount: i128 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("amount"))
+            .unwrap();
+        let eph_pub: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("eph_pub"))
+            .unwrap();
+        let spend_pub: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("spend_pub"))
+            .unwrap();
+        let stealth_address: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("stealth"))
+            .unwrap();
+
+        let params = StealthDepositParams {
+            sender,
+            token,
+            amount_due: amount,
+            amount_paid: amount,
+            eph_pub,
+            spend_pub,
+            stealth_address,
+            timeout_secs: 0,
+        };
+
+        let client = QuickexContractClient::new(&env, &target);
+        let attempt = client.try_register_ephemeral_key(&params, &0u64, &u64::MAX);
+
+        let code: u32 = match attempt {
+            Err(Ok(e)) => e as u32,
+            Ok(_) => 0,
+            Err(Err(InvokeError::Contract(code))) => code,
+            Err(Err(InvokeError::Abort)) => HOST_REENTRY_ABORT,
+        };
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("result"), &code);
+    }
+
+    pub fn result(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&symbol_short!("result"))
+            .unwrap_or(0)
+    }
+}
+
+/// A malicious hook fired during a deposit (`Create` event) tries to reenter via
+/// `register_ephemeral_key`. The reentrant attempt is rejected.
+#[test]
+fn test_reentrant_stealth_deposit_during_hook_is_rejected() {
+    let ctx = TestContext::with_admin();
+
+    let eph_pub = BytesN::from_array(&ctx.env, &[10u8; 32]);
+    let spend_pub = BytesN::from_array(&ctx.env, &[20u8; 32]);
+    let shared = stealth::derive_shared_secret(&ctx.env, &eph_pub, &spend_pub);
+    let stealth_address = stealth::derive_stealth_address(&ctx.env, &spend_pub, &shared);
+
+    ctx.mint(&ctx.bob, 500);
+
+    let hook_id = ctx.env.register(ReentrantStealthDepositHook, ());
+    let hook_client = ReentrantStealthDepositHookClient::new(&ctx.env, &hook_id);
+    hook_client.init(
+        &ctx.client.address,
+        &ctx.bob,
+        &ctx.token,
+        &500i128,
+        &eph_pub,
+        &spend_pub,
+        &stealth_address,
+        &(HookEventKind::Create as u32),
+    );
+    allow_and_register_hook(&ctx, &hook_id);
+
+    // Trigger the Create hook via normal deposit for Alice.
+    let commitment1 = ctx.simple_deposit(&ctx.alice, 1000, b"c1-salt");
+
+    // Reentrant attempt from the hook must be rejected (either host-level abort
+    // or ReentrancyDetected).
+    let hook_result = hook_client.result();
+    assert!(
+        hook_result == HOST_REENTRY_ABORT || hook_result == QuickexError::ReentrancyDetected as u32,
+        "Expected hook reentrancy to be rejected, got code {}",
+        hook_result
+    );
+
+    // The stealth deposit was not created.
+    assert_eq!(ctx.client.get_stealth_status(&stealth_address), None);
+
+    // Primary deposit succeeded normally.
+    assert_escrow_pending(&ctx.client, &commitment1);
+}
+
+/// Explicit test asserting that `register_ephemeral_key` returns `ReentrancyDetected`
+/// when the reentrancy guard is set.
+#[test]
+fn test_register_ephemeral_key_rejects_when_reentrancy_guard_active() {
+    let ctx = TestContext::with_admin();
+
+    // Set reentrancy guard in contract storage
+    ctx.env.as_contract(&ctx.client.address, || {
+        storage::set_reentrancy_guard(&ctx.env, &true);
+    });
+
+    let eph_pub = BytesN::from_array(&ctx.env, &[10u8; 32]);
+    let spend_pub = BytesN::from_array(&ctx.env, &[20u8; 32]);
+    let shared = stealth::derive_shared_secret(&ctx.env, &eph_pub, &spend_pub);
+    let stealth_address = stealth::derive_stealth_address(&ctx.env, &spend_pub, &shared);
+
+    let params = StealthDepositParams {
+        sender: ctx.alice.clone(),
+        token: ctx.token.clone(),
+        amount_due: 1000,
+        amount_paid: 1000,
+        eph_pub,
+        spend_pub,
+        stealth_address,
+        timeout_secs: 0,
+    };
+
+    let result = ctx
+        .client
+        .try_register_ephemeral_key(&params, &0u64, &u64::MAX);
+    assert_eq!(result, Err(Ok(QuickexError::ReentrancyDetected)));
+}
+
+/// A malicious hook fired during a withdraw (`Settle` event) tries to reenter via
+/// `register_ephemeral_key`. The reentrant attempt is rejected.
+#[test]
+fn test_reentrant_stealth_deposit_during_withdraw_is_rejected() {
+    let ctx = TestContext::with_admin();
+
+    let eph_pub = BytesN::from_array(&ctx.env, &[10u8; 32]);
+    let spend_pub = BytesN::from_array(&ctx.env, &[20u8; 32]);
+    let shared = stealth::derive_shared_secret(&ctx.env, &eph_pub, &spend_pub);
+    let stealth_address = stealth::derive_stealth_address(&ctx.env, &spend_pub, &shared);
+
+    ctx.mint(&ctx.bob, 500);
+
+    let hook_id = ctx.env.register(ReentrantStealthDepositHook, ());
+    let hook_client = ReentrantStealthDepositHookClient::new(&ctx.env, &hook_id);
+    hook_client.init(
+        &ctx.client.address,
+        &ctx.bob,
+        &ctx.token,
+        &500i128,
+        &eph_pub,
+        &spend_pub,
+        &stealth_address,
+        &(HookEventKind::Settle as u32),
+    );
+    allow_and_register_hook(&ctx, &hook_id);
+
+    let salt = ctx.salt(b"w-salt");
+    let commitment = ctx.simple_deposit(&ctx.alice, 1000, b"w-salt");
+
+    // Trigger the Settle hook via withdraw for Alice.
+    ctx.client.withdraw(
+        &ctx.token,
+        &1000i128,
+        &commitment,
+        &ctx.alice,
+        &salt,
+        &0u64,
+        &u64::MAX,
+    );
+
+    let hook_result = hook_client.result();
+    assert!(
+        hook_result == HOST_REENTRY_ABORT || hook_result == QuickexError::ReentrancyDetected as u32,
+        "Expected hook reentrancy to be rejected, got code {}",
+        hook_result
+    );
+
+    assert_eq!(ctx.client.get_stealth_status(&stealth_address), None);
+    assert_escrow_spent(&ctx.client, &commitment);
+    assert_eq!(ctx.balance(&ctx.alice), 1000);
+}
+
+/// A malicious hook fired during a refund (`Refund` event) tries to reenter via
+/// `register_ephemeral_key`. The reentrant attempt is rejected.
+#[test]
+fn test_reentrant_stealth_deposit_during_refund_is_rejected() {
+    let ctx = TestContext::with_admin();
+
+    let eph_pub = BytesN::from_array(&ctx.env, &[10u8; 32]);
+    let spend_pub = BytesN::from_array(&ctx.env, &[20u8; 32]);
+    let shared = stealth::derive_shared_secret(&ctx.env, &eph_pub, &spend_pub);
+    let stealth_address = stealth::derive_stealth_address(&ctx.env, &spend_pub, &shared);
+
+    ctx.mint(&ctx.bob, 500);
+
+    let hook_id = ctx.env.register(ReentrantStealthDepositHook, ());
+    let hook_client = ReentrantStealthDepositHookClient::new(&ctx.env, &hook_id);
+    hook_client.init(
+        &ctx.client.address,
+        &ctx.bob,
+        &ctx.token,
+        &500i128,
+        &eph_pub,
+        &spend_pub,
+        &stealth_address,
+        &(HookEventKind::Refund as u32),
+    );
+    allow_and_register_hook(&ctx, &hook_id);
+
+    ctx.mint(&ctx.alice, 1000);
+    let commitment = ctx.client.deposit(
+        &ctx.token,
+        &1000i128,
+        &ctx.alice,
+        &ctx.salt(b"r-salt"),
+        &100u64,
+        &None,
+        &0u64,
+        &u64::MAX,
+    );
+
+    ctx.advance_time(101);
+
+    // Trigger the Refund hook via refund for Alice.
+    ctx.client.refund(&commitment, &ctx.alice, &0u64, &u64::MAX);
+
+    let hook_result = hook_client.result();
+    assert!(
+        hook_result == HOST_REENTRY_ABORT || hook_result == QuickexError::ReentrancyDetected as u32,
+        "Expected hook reentrancy to be rejected, got code {}",
+        hook_result
+    );
+
+    assert_eq!(ctx.client.get_stealth_status(&stealth_address), None);
+    assert_escrow_refunded(&ctx.client, &commitment);
+    assert_eq!(ctx.balance(&ctx.alice), 1000);
 }

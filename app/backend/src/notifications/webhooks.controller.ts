@@ -37,7 +37,7 @@ import {
   VerifyWebhookSignatureDto,
   VerifyWebhookSignatureResponseDto,
 } from "./dto/webhook.dto";
-import { RateLimitGroupTag } from "../auth/decorators/rate-limit-group.decorator";
+import { RateLimitGroupTag, RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 import { WebhookProvider } from "./providers/notification-provider.interface";
 
 @ApiTags("Webhooks")
@@ -49,6 +49,7 @@ export class WebhooksController {
   constructor(private readonly webhookService: WebhookService) {}
 
   @Post("verify-signature")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Verify a webhook payload/signature/timestamp against a secret",
@@ -74,6 +75,7 @@ export class WebhooksController {
   }
 
   @Post(":publicKey")
+  @RateLimitTier("mutation")
   @ApiOperation({ summary: "Register a new webhook for payment events" })
   @ApiParam({
     name: "publicKey",
@@ -100,6 +102,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "List all webhooks for a public key" })
   @ApiParam({
     name: "publicKey",
@@ -121,6 +124,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "Get webhook details by ID" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })
   @ApiParam({ name: "id", description: "Webhook ID (UUID)" })
@@ -151,6 +155,7 @@ export class WebhooksController {
    * Update a webhook.
    */
   @Put(":publicKey/:id")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Update webhook configuration" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })
@@ -174,6 +179,7 @@ export class WebhooksController {
   }
 
   @Delete(":publicKey/:id")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Delete a webhook" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })
@@ -192,6 +198,7 @@ export class WebhooksController {
   }
 
   @Post(":publicKey/:id/regenerate-secret")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Regenerate webhook secret",
@@ -226,6 +233,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id/logs")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "Get webhook delivery logs" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })
   @ApiParam({ name: "id", description: "Webhook ID (UUID)" })
@@ -256,6 +264,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id/stats")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "Get webhook delivery statistics" })
   @ApiParam({ name: "publicKey", description: "Stellar public key (G...)" })
   @ApiParam({ name: "id", description: "Webhook ID (UUID)" })
@@ -277,6 +286,7 @@ export class WebhooksController {
   }
 
   @Post(":publicKey/:id/redeliver")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Redeliver a specific event",
@@ -318,6 +328,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id/attempts")
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "List webhook delivery attempts for endpoint",
     description:
@@ -357,6 +368,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id/attempts/:attemptId")
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "Get a single webhook delivery attempt",
     description: "Returns the delivery attempt detail including redacted payload metadata.",
@@ -388,6 +400,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id/deliveries/:eventType/:eventId")
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "Get webhook delivery status for an event",
     description:
@@ -418,6 +431,7 @@ export class WebhooksController {
   }
 
   @Get(":publicKey/:id/replays")
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "List manual replay history for a webhook",
     description: "Queryable audit trail of replay API calls for this webhook.",

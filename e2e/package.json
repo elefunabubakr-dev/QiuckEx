@@ -5,6 +5,8 @@
   "description": "Browser end-to-end tests for QuickEx (Playwright).",
   "scripts": {
     "test": "playwright test",
+    "test:theme": "playwright test --project=visual-theme",
+    "test:theme:update": "playwright test --project=visual-theme --update-snapshots",
     "install-browsers": "playwright install --with-deps chromium"
   },
   "devDependencies": {

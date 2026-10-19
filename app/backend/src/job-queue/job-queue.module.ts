@@ -18,6 +18,7 @@ import { JobQueueMetricsService } from "./job-queue-metrics.service";
 import { DeadLetterQueueMonitorService } from "./dead-letter-monitor.service";
 import { SupabaseModule } from "../supabase/supabase.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { NotificationPreferencesRepository } from "../notifications/notification-preferences.repository";
 import { LinksModule } from "../links/links.module";
 import { ReconciliationModule } from "../reconciliation/reconciliation.module";
 import { IngestionModule } from "../ingestion/ingestion.module";
@@ -26,6 +27,7 @@ import { MetricsModule } from "../metrics/metrics.module";
 import { ApiKeysModule } from "../api-keys/api-keys.module";
 import { FiatRampsModule } from "../fiat-ramps/fiat-ramps.module";
 import { ExportStorageModule } from "../exports/export-storage.module";
+import { SentryModule } from "../sentry";
 import {
   WebhookDeliveryHandler,
   RecurringPaymentHandler,
@@ -60,6 +62,7 @@ import {
     MetricsModule,
     ApiKeysModule,
     ExportStorageModule,
+    SentryModule,
     forwardRef(() => NotificationsModule),
     forwardRef(() => LinksModule),
     forwardRef(() => ReconciliationModule),
@@ -83,6 +86,7 @@ import {
     ReconciliationHandler,
     StellarReconnectHandler,
     Sep24StatusPollHandler,
+    NotificationPreferencesRepository,
   ],
   exports: [
     JobQueueService,

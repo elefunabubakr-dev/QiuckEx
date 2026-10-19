@@ -29,7 +29,7 @@ import {
 } from './dto/developer.dto';
 import { ApiKeyCreated } from '../api-keys/api-keys.types';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
-import { RateLimitGroupTag } from '../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('developer')
 @RateLimitGroupTag('authenticated')
@@ -38,6 +38,7 @@ export class DeveloperController {
   constructor(private readonly developerService: DeveloperService) {}
 
   @Get('ping')
+  @RateLimitTier('public-read')
   @ApiOperation({ summary: 'Connectivity check', description: 'Returns ok when the API is reachable. No authentication required.' })
   @ApiResponse({ status: 200, type: PingResponseDto })
   ping(): PingResponseDto {
@@ -45,6 +46,7 @@ export class DeveloperController {
   }
 
   @Post('webhooks/:webhookId/test')
+  @RateLimitTier('mutation')
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -61,6 +63,7 @@ export class DeveloperController {
   }
 
   @Post('webhooks/:webhookId/sample-events')
+  @RateLimitTier('mutation')
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -80,6 +83,7 @@ export class DeveloperController {
   }
 
   @Post('keys/bulk-revoke')
+  @RateLimitTier('mutation')
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -92,6 +96,7 @@ export class DeveloperController {
   }
 
   @Post('keys/:id/emergency-rotate')
+  @RateLimitTier('mutation')
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -108,6 +113,7 @@ export class DeveloperController {
   }
 
   @Get('health')
+  @RateLimitTier('public-read')
   @ApiOperation({
     summary: 'Integration health score',
     description: 'Returns a 0–100 score and letter grade based on webhook failure rate and API quota utilisation for a given organisation.',

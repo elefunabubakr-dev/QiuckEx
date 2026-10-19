@@ -355,8 +355,8 @@ fn event_data_map(env: &Env, data: Val) -> Map<Symbol, Val> {
 
 #[test]
 fn test_event_schema_catalog_locks_canonical_topics_and_payloads() {
-    assert_eq!(EVENT_SCHEMA_VERSION, 3);
-    assert_eq!(EVENT_SCHEMAS.len(), 38);
+    assert_eq!(EVENT_SCHEMA_VERSION, 4);
+    assert_eq!(EVENT_SCHEMAS.len(), 41);
 
     let escrow_deposited = EVENT_SCHEMAS
         .iter()
@@ -1614,6 +1614,37 @@ fn test_verify_proof_view_valid() {
 
     let is_valid = client.verify_proof_view(&amount, &salt, &owner);
     assert!(is_valid);
+}
+
+#[test]
+fn test_verify_proof_view_underfunded_escrow_returns_false() {
+    let (env, client) = setup();
+    let token = create_test_token(&env);
+    let owner = Address::generate(&env);
+    let amount_due: i128 = 1000;
+    let initial_payment: i128 = 500;
+    let salt = Bytes::from_slice(&env, b"underfunded_proof_salt");
+
+    token::StellarAssetClient::new(&env, &token).mint(&owner, &initial_payment);
+    let commitment = client.deposit_partial(
+        &token,
+        &amount_due,
+        &initial_payment,
+        &owner,
+        &salt,
+        &0,
+        &None,
+        &0u64,
+        &u64::MAX,
+    );
+
+    let details = client.get_escrow_details(&commitment, &owner).unwrap();
+    assert_eq!(details.amount_due, Some(amount_due));
+    assert_eq!(details.amount_paid, Some(initial_payment));
+    assert_eq!(details.status, EscrowStatus::Pending);
+    assert_eq!(details.expires_at, 0);
+
+    assert!(!client.verify_proof_view(&amount_due, &salt, &owner));
 }
 
 #[test]
@@ -4145,22 +4176,26 @@ fn test_multi_sig_vote_threshold_reached() {
     let amount: i128 = 5000;
     let salt = Bytes::from_slice(&env, b"multi_sig_salt");
 
-    // Create escrow with multi-sig arbiters (2-of-3)
+    // Create escrow with multi-sig arbiters (2-of-3) through the public
+    // deposit variant — no direct storage manipulation.
     let token_client = token::StellarAssetClient::new(&env, &token);
     token_client.mint(&owner, &amount);
-    // We need to manually create an escrow entry with multi-sig config
-    // For now, we'll test the vote and resolution logic directly
-    // This test assumes we have a way to create multi-sig escrows
-    // In production, this would be done via a new deposit function variant
-    // For testing purposes, we'll use the existing deposit and then manually
-    // update the storage to have multi-sig arbiters
-    let commitment = client.deposit(
+    let mut arbiters = soroban_sdk::Vec::new(&env);
+    for a in [
+        arbiter1.clone(),
+        Address::generate(&env),
+        Address::generate(&env),
+    ] {
+        arbiters.push_back(a);
+    }
+    let commitment = client.deposit_multi_sig(
         &token,
         &amount,
         &owner,
         &salt,
         &1000,
-        &Some(arbiter1),
+        &arbiters,
+        &2u32,
         &0u64,
         &u64::MAX,
     );
@@ -4170,9 +4205,10 @@ fn test_multi_sig_vote_threshold_reached() {
         client.get_commitment_state(&commitment),
         Some(EscrowStatus::Disputed)
     );
-    // Note: Full multi-sig testing requires updating the deposit functions
-    // to accept arbiters array and threshold. The core logic is implemented
-    // and tested via the escrow module functions directly.
+    // The escrow is now in multi-sig mode, so `vote_for_dispute` no longer
+    // rejects it with `NoArbiter`.
+    let vote = client.try_vote_for_dispute(&arbiter1, &commitment, &true, &0u64, &u64::MAX);
+    assert!(vote.is_ok());
 }
 
 #[test]
@@ -4361,6 +4397,38 @@ fn test_pause_reason_codes_and_events() {
         &u64::MAX,
     );
     assert_contract_error(result, QuickexError::OperationPaused);
+}
+
+/// Regression: `set_pause_flags` used to iterate a hardcoded
+/// `[1, 2, 4, 8, 16, 32]` flag list that predated `PauseFlag::FeeWithdrawal = 64`,
+/// so `pause_features(mask = 64, ...)` set the bitmask but
+/// `get_feature_pause_reason(FeeWithdrawal)` silently returned 0 and lost the
+/// audit trail. The reason recorded by `pause_features` must be readable back.
+#[test]
+fn test_fee_withdrawal_pause_reason_recorded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(QuickexContract, ());
+    let client = QuickexContractClient::new(&env, &contract_id);
+
+    client.initialize(&admin);
+
+    let reason = 42u32;
+    client.pause_features(&admin, &(PauseFlag::FeeWithdrawal as u64), &reason);
+    assert!(client.is_feature_paused(&PauseFlag::FeeWithdrawal));
+    assert_eq!(
+        client.get_feature_pause_reason(&PauseFlag::FeeWithdrawal),
+        reason
+    );
+
+    client.unpause_features(&admin, &(PauseFlag::FeeWithdrawal as u64), &reason);
+    assert!(!client.is_feature_paused(&PauseFlag::FeeWithdrawal));
+    assert_eq!(
+        client.get_feature_pause_reason(&PauseFlag::FeeWithdrawal),
+        0u32
+    );
 }
 
 // ============================================================================

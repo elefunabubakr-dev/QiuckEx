@@ -5,7 +5,7 @@
     { "route": "/", "maxBytes": 445000 },
     { "route": "/pay", "maxBytes": 410000 },
     { "route": "/generator", "maxBytes": 505000 },
-    { "route": "/dashboard", "maxBytes": 860000 },
+    { "route": "/dashboard", "maxBytes": 460000 },
     { "route": "/discovery", "maxBytes": 370000 }
   ]
 }

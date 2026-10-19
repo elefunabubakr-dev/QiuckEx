@@ -4,6 +4,7 @@ import { SupabaseModule } from "../supabase/supabase.module";
 import { JobQueueModule } from "../job-queue/job-queue.module";
 import { MetricsModule } from "../metrics/metrics.module";
 import { ContractsModule } from "../contracts/contracts.module";
+import { ApiKeysModule } from "../api-keys/api-keys.module";
 import { CursorRepository } from "./cursor.repository";
 import { EscrowEventRepository } from "./escrow-event.repository";
 import { PrivacyEventRepository } from "./privacy-event.repository";
@@ -23,6 +24,7 @@ import { IngestionBootstrapService } from "./ingestion-bootstrap.service";
     forwardRef(() => JobQueueModule),
     MetricsModule,
     ContractsModule,
+    ApiKeysModule,
   ],
   controllers: [SorobanIndexerController],
   providers: [

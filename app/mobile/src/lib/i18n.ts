@@ -9,9 +9,13 @@ const resources = Object.fromEntries(
   Object.entries(translations).map(([lng, translation]) => [lng, { translation }]),
 );
 
-const initialLanguage = typeof window !== 'undefined'
-  ? window.localStorage.getItem('i18nextLng') || 'en'
-  : 'en';
+// React Native defines `window` but does not provide `localStorage` (web does),
+// so read the persisted locale defensively — otherwise module evaluation throws
+// on native and the bootstrap never runs.
+const storage: Storage | undefined =
+  typeof window !== 'undefined' ? window.localStorage : undefined;
+
+const initialLanguage = storage?.getItem('i18nextLng') || 'en';
 
 i18n
   .use(initReactI18next)
@@ -24,9 +28,9 @@ i18n
     resources,
   });
 
-if (typeof window !== 'undefined') {
+if (storage) {
   i18n.on('languageChanged', (lng) => {
-    window.localStorage.setItem('i18nextLng', lng);
+    storage.setItem('i18nextLng', lng);
   });
 }
 

@@ -73,13 +73,63 @@ export class RecurringPaymentsScheduler implements OnModuleInit {
     try {
       this.logger.debug('Checking for upcoming payment notifications...');
 
-      // This would query for payments scheduled in the next 24 hours
-      // Implementation depends on specific notification requirements
-      // For now, we'll skip detailed implementation
+      const upcomingLinks = await this.schedulerService.getUpcomingLinksForNotification(
+        this.notificationHoursBefore,
+      );
+
+      if (upcomingLinks.length === 0) {
+        this.logger.debug('No upcoming recurring payments due for notification');
+        return;
+      }
+
+      this.logger.log(`Found ${upcomingLinks.length} upcoming recurring payment(s) for notification check`);
+
+      for (const link of upcomingLinks) {
+        try {
+          await this.processUpcomingNotification(link);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          this.logger.error(
+            `Error processing upcoming notification for link ${link.id}: ${errorMessage}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Error sending notifications: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
     }
+  }
+
+  private async processUpcomingNotification(link: DbRecurringPaymentLink): Promise<void> {
+    const nextPeriodNumber = link.executed_count + 1;
+
+    let execution = await this.repository.findExecutionByLinkAndPeriod(link.id, nextPeriodNumber);
+
+    if (!execution) {
+      execution = await this.repository.createExecution({
+        recurringLinkId: link.id,
+        periodNumber: nextPeriodNumber,
+        scheduledAt: new Date(link.next_execution_date),
+        amount: link.amount,
+        asset: link.asset,
+        previewScope: link.preview_scope || undefined,
+      });
+    }
+
+    if (execution.notification_sent) {
+      this.logger.debug(
+        `Upcoming payment notification already sent for link ${link.id} execution ${execution.id}`,
+      );
+      return;
+    }
+
+    await this.notifyUser(link, execution, 'due');
+    await this.repository.markNotificationSent(execution.id);
+
+    this.logger.log(
+      `Sent upcoming payment notification for link ${link.id} execution ${execution.id}`,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -95,16 +145,21 @@ export class RecurringPaymentsScheduler implements OnModuleInit {
       // Determine the next period number
       const nextPeriodNumber = link.executed_count + 1;
 
-      // Create execution record
-      const execution = await this.repository.createExecution({
-        recurringLinkId: linkId,
-        periodNumber: nextPeriodNumber,
-        scheduledAt: new Date(link.next_execution_date),
-        amount: link.amount,
-        asset: link.asset,
-      });
+      // Get or create execution record
+      let execution = await this.repository.findExecutionByLinkAndPeriod(linkId, nextPeriodNumber);
 
-      this.logger.log(`Created execution record: ${execution.id} for period ${nextPeriodNumber}`);
+      if (!execution) {
+        execution = await this.repository.createExecution({
+          recurringLinkId: linkId,
+          periodNumber: nextPeriodNumber,
+          scheduledAt: new Date(link.next_execution_date),
+          amount: link.amount,
+          asset: link.asset,
+        });
+        this.logger.log(`Created execution record: ${execution.id} for period ${nextPeriodNumber}`);
+      } else {
+        this.logger.log(`Using existing execution record: ${execution.id} for period ${nextPeriodNumber}`);
+      }
 
       // Execute the payment
       await this.executeSinglePayment(link, execution);
@@ -228,6 +283,7 @@ export class RecurringPaymentsScheduler implements OnModuleInit {
         periodNumber: execution.period_number,
         transactionHash,
         failureReason,
+        scheduledAt: execution.scheduled_at,
       });
 
       this.logger.debug(`Emitted notification event: ${eventType}`);

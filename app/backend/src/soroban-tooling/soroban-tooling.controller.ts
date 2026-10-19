@@ -6,6 +6,7 @@ import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { DeploymentService } from './deployment.service';
 import { FundingPreflightDto, DeploymentPlanDto } from './dto/testnet-tooling.dto';
 import { FundingHelperService } from './funding-helper.service';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('developer')
 @ApiHeader({
@@ -22,6 +23,7 @@ export class SorobanToolingController {
   ) {}
 
   @Post('funding/preflight')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Check whether a Stellar account is funded enough for deploy flows' })
   preflightFunding(@Body() body: FundingPreflightDto) {
@@ -29,6 +31,7 @@ export class SorobanToolingController {
   }
 
   @Post('deployments/plan')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Plan a deterministic Soroban deployment run without submitting transactions' })

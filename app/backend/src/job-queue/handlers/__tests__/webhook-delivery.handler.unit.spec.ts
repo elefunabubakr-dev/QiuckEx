@@ -4,12 +4,15 @@ import {
   PermanentJobError,
 } from "../webhook-delivery.handler";
 import { NotificationLogRepository } from "../../../notifications/notification-log.repository";
+import { WebhookProvider } from "../../../notifications/providers/notification-provider.interface";
+import { JobRepository } from "../../job.repository";
 import { Job, CancellationToken, JobStatus } from "../../types";
 import { WebhookDeliveryPayload } from "../../types/job-payloads.types";
 
 describe("WebhookDeliveryHandler", () => {
   let handler: WebhookDeliveryHandler;
   let logRepo: jest.Mocked<NotificationLogRepository>;
+  let jobRepository: jest.Mocked<Pick<JobRepository, "findById" | "updateJobStatus">>;
   let mockFetch: jest.SpyInstance;
 
   const makeJob = (
@@ -52,11 +55,19 @@ describe("WebhookDeliveryHandler", () => {
             markFailed: jest.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: JobRepository,
+          useValue: {
+            findById: jest.fn().mockResolvedValue(null),
+            updateJobStatus: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     handler = module.get<WebhookDeliveryHandler>(WebhookDeliveryHandler);
     logRepo = module.get(NotificationLogRepository);
+    jobRepository = module.get(JobRepository);
     mockFetch = jest.spyOn(global, "fetch");
   });
 
@@ -342,6 +353,167 @@ describe("WebhookDeliveryHandler", () => {
       const job = makeJob();
       await expect(
         handler.onFailure(job, new Error("err")),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // HMAC signing (#1150)
+  // ---------------------------------------------------------------------------
+  describe("execute – HMAC signing", () => {
+    const okResponse = {
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve("ok"),
+    };
+
+    it("signs the exact request body with the registered secret", async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await handler.execute(
+        makeJob({ signingSecret: "whsec_test" }),
+        cancellationToken,
+      );
+
+      const [, init] = mockFetch.mock.calls[0];
+      const headers = init.headers as Record<string, string>;
+      const timestamp = headers["X-QuickEx-Timestamp"];
+
+      expect(timestamp).toEqual(expect.any(String));
+      expect(new Date(timestamp).toISOString()).toBe(timestamp);
+      expect(headers["X-QuickEx-Signature"]).toBe(
+        WebhookProvider.signPayload(init.body as string, timestamp, "whsec_test"),
+      );
+      expect(headers["X-QuickEx-Signature"]).toMatch(/^sha256=[0-9a-f]{64}$/);
+    });
+
+    it("produces a signature the shared verifier accepts", async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await handler.execute(
+        makeJob({ signingSecret: "whsec_test" }),
+        cancellationToken,
+      );
+
+      const [, init] = mockFetch.mock.calls[0];
+      const headers = init.headers as Record<string, string>;
+
+      expect(
+        WebhookProvider.verifySignature(
+          init.body as string,
+          headers["X-QuickEx-Signature"],
+          headers["X-QuickEx-Timestamp"],
+          "whsec_test",
+        ),
+      ).toBe(true);
+    });
+
+    it("sends no signature header when no secret is configured", async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await handler.execute(makeJob(), cancellationToken);
+
+      const [, init] = mockFetch.mock.calls[0];
+      const headers = init.headers as Record<string, string>;
+
+      expect(headers["X-QuickEx-Signature"]).toBeUndefined();
+      expect(headers["X-QuickEx-Timestamp"]).toEqual(expect.any(String));
+    });
+
+    it("signs a payload that never contains the raw body of a large export", async () => {
+      mockFetch.mockResolvedValue(okResponse);
+
+      await handler.execute(
+        makeJob({
+          signingSecret: "whsec_test",
+          eventType: "export.completed",
+          payload: {
+            exportType: "transactions",
+            format: "csv",
+            recordCount: 2,
+            jobId: "job-42",
+            downloadReference: {
+              storageKey: "exports/GUSER123/job-42.csv",
+              userId: "GABCDEF",
+              token: "tok",
+              tokenExpiresAt: 1893456000,
+            },
+          },
+        }),
+        cancellationToken,
+      );
+
+      const [, init] = mockFetch.mock.calls[0];
+      const body = JSON.parse(init.body as string);
+
+      expect(body.payload).not.toHaveProperty("data");
+      expect(body.payload.downloadReference.token).toBe("tok");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // onFailure – parent export job propagation (#1150)
+  // ---------------------------------------------------------------------------
+  describe("onFailure – related job propagation", () => {
+    const exportJob = {
+      id: "export-job-1",
+      status: JobStatus.COMPLETED,
+    } as unknown as Job<unknown>;
+
+    it("marks the parent export job as failed so the failure is not reported as success", async () => {
+      jobRepository.findById.mockResolvedValue(exportJob);
+
+      await handler.onFailure(
+        makeJob({ relatedJobId: "export-job-1" }),
+        new Error("Webhook returned HTTP 400"),
+      );
+
+      expect(jobRepository.updateJobStatus).toHaveBeenCalledWith(
+        "export-job-1",
+        JobStatus.FAILED,
+        expect.objectContaining({
+          completedAt: expect.any(Date),
+          failureReason: expect.stringContaining("Webhook returned HTTP 400"),
+        }),
+      );
+    });
+
+    it("leaves a parent job that is still in flight untouched only if it is already terminal", async () => {
+      jobRepository.findById.mockResolvedValue({
+        id: "export-job-1",
+        status: JobStatus.CANCELLED,
+      } as unknown as Job<unknown>);
+
+      await handler.onFailure(
+        makeJob({ relatedJobId: "export-job-1" }),
+        new Error("nope"),
+      );
+
+      expect(jobRepository.updateJobStatus).not.toHaveBeenCalled();
+    });
+
+    it("does not look up a parent job when no related job is set", async () => {
+      await handler.onFailure(makeJob(), new Error("nope"));
+
+      expect(jobRepository.findById).not.toHaveBeenCalled();
+      expect(jobRepository.updateJobStatus).not.toHaveBeenCalled();
+    });
+
+    it("does not throw when the parent job cannot be found", async () => {
+      jobRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        handler.onFailure(makeJob({ relatedJobId: "missing" }), new Error("nope")),
+      ).resolves.toBeUndefined();
+      expect(jobRepository.updateJobStatus).not.toHaveBeenCalled();
+    });
+
+    it("does not throw when updating the parent job fails", async () => {
+      jobRepository.findById.mockResolvedValue(exportJob);
+      jobRepository.updateJobStatus.mockRejectedValue(new Error("DB down"));
+
+      await expect(
+        handler.onFailure(makeJob({ relatedJobId: "export-job-1" }), new Error("nope")),
       ).resolves.toBeUndefined();
     });
   });

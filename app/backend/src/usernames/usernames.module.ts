@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { SupabaseModule } from "../supabase/supabase.module";
+import { ProfileController } from "./profile.controller";
 import { UsernamesController } from "./usernames.controller";
 import { UsernamesService } from "./usernames.service";
 import { DiscoveryCacheService } from "./cache/discovery-cache.service";
@@ -11,7 +12,7 @@ import {
 
 @Module({
   imports: [SupabaseModule],
-  controllers: [UsernamesController],
+  controllers: [UsernamesController, ProfileController],
   providers: [
     UsernamesService,
     DiscoveryCacheService,

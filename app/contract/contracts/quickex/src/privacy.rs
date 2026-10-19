@@ -135,7 +135,10 @@ pub fn privacy_status(env: &Env, account: Address) -> Option<u32> {
     Some(read_privacy_flag(env, &account) as u32)
 }
 
-/// Deprecated append-only audit log of levels requested via [`enable_privacy`].
+/// Deprecated audit log of the latest 64 levels requested via [`enable_privacy`].
+///
+/// Newest first, bounded by [`storage::MAX_PRIVACY_HISTORY`] on both reads and
+/// writes. Older entries are discarded; this log never determines privacy state.
 pub fn privacy_history(env: &Env, account: Address) -> Vec<u32> {
     storage::get_privacy_history(env, &account)
 }

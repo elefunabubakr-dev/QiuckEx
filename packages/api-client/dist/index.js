@@ -6,3 +6,4 @@ export function createQuickexClient(options) {
         fetch: options.fetch,
     });
 }
+export { decryptRecipientEnvelopeClient, deriveSharedSecretHexClient, generateStealthViewKeyPairClient, } from "./stealth-privacy";

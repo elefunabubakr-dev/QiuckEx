@@ -19,11 +19,12 @@
 extern crate std;
 
 use crate::{
-    escrow_id,
+    escrow_id, oracle,
     storage::{
         compact_escrow_storage_footprint_bytes, legacy_escrow_storage_footprint_bytes, put_escrow,
         DataKey, PRIVACY_ENABLED_KEY,
     },
+    types::OracleFeeConfig,
     EscrowEntry, EscrowStatus, QuickexContract, QuickexContractClient,
 };
 use soroban_sdk::{
@@ -826,4 +827,53 @@ fn bench_arbiter_escrow_storage_footprint() {
     let compact_bytes = compact_escrow_storage_footprint_bytes(&env, &commitment, &entry);
 
     print_storage_delta("arbiter_escrow_storage", legacy_bytes, compact_bytes);
+}
+
+/// Benchmark: fetch_aggregated_price at MAX_ORACLE_SOURCES cap.
+///
+/// Documents the CPU instruction and memory cost of multi-source oracle median
+/// aggregation when the registry is filled to its maximum capacity
+/// ([`crate::oracle::MAX_ORACLE_SOURCES`]).
+#[test]
+fn bench_fetch_aggregated_price_at_max_sources() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let oracle_addr = Address::generate(&env);
+    client.set_oracle_fee_config(
+        &admin,
+        &OracleFeeConfig {
+            oracle: oracle_addr,
+            usd_fee_micros: 500_000,
+            stale_threshold_secs: 300,
+        },
+    );
+
+    // Register up to the cap (MAX_ORACLE_SOURCES = 10) with varying prices
+    for i in 0..oracle::MAX_ORACLE_SOURCES {
+        let source = Address::generate(&env);
+        client.register_oracle_source(&admin, &source);
+        let price = 10_000_000i128 + ((i as i128) * 10_000);
+        client.record_oracle_source_price(&source, &price);
+    }
+
+    // Reset budget immediately before the hot path call to exclude setup
+    env.cost_estimate().budget().reset_default();
+    let result = client.get_aggregated_oracle_price();
+    assert!(result.0 > 0);
+
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
+    print_budget(&env, "fetch_aggregated_price_max_cap");
+
+    // Ensure CPU instruction cost is bounded and well within budget
+    assert!(
+        cpu < 1_000_000,
+        "fetch_aggregated_price exceeded CPU budget: cpu={cpu}"
+    );
+    assert!(
+        mem < 200_000,
+        "fetch_aggregated_price exceeded memory budget: mem={mem}"
+    );
 }

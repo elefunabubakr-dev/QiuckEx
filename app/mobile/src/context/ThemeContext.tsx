@@ -15,8 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ThemeMode,
   ThemeTokens,
+  ThemeRegistry,
   themeTokens,
-  resolveToken,
 } from '../theme/tokens';
 
 const THEME_STORAGE_KEY = '@quickex_theme_mode';
@@ -28,7 +28,6 @@ interface ThemeContextValue {
   tokens: ThemeTokens;
   setMode: (mode: ThemeMode) => Promise<void>;
   toggleMode: () => Promise<void>;
-  resolve: <T>(token: { light: T; dark: T }) => T;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -84,24 +83,29 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     await setMode(next);
   }, [mode, isDark, setMode]);
 
-  const resolve = useCallback(
-    <T,>(token: { light: T; dark: T }): T => {
-      return resolveToken(token, mode, systemColorScheme || 'light');
-    },
-    [mode, systemColorScheme]
-  );
-
   const value = useMemo(
-    () => ({
-      mode,
-      systemScheme: systemColorScheme,
-      isDark,
-      tokens: themeTokens,
-      setMode,
-      toggleMode,
-      resolve,
-    }),
-    [mode, systemColorScheme, isDark, setMode, toggleMode, resolve]
+    () => {
+      // Select the correct theme tokens based on the current mode
+      let selectedTheme: ThemeTokens;
+      if (mode === 'system') {
+        selectedTheme = systemColorScheme === 'dark' ? ThemeRegistry.dark : ThemeRegistry.light;
+      } else if (mode === 'brand') {
+        // Brand mode defaults to QuickEx Blue (first brand theme)
+        selectedTheme = ThemeRegistry['quickex-blue'];
+      } else {
+        selectedTheme = ThemeRegistry[mode];
+      }
+      
+      return {
+        mode,
+        systemScheme: systemColorScheme,
+        isDark,
+        tokens: selectedTheme,
+        setMode,
+        toggleMode,
+      };
+    },
+    [mode, systemColorScheme, isDark, setMode, toggleMode]
   );
 
   if (!isReady) return null;

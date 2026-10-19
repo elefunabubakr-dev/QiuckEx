@@ -10,6 +10,17 @@ import {
 import { AnchorClientService } from './anchor-client.service';
 import { AppConfigService } from '../config/app-config.service';
 
+export interface AnchorDirectoryEntry {
+  domain: string;
+  name?: string;
+  type?: string;
+  supportedCountries?: string[];
+  webhookSecret?: string;
+  sharedSecret?: string;
+  secret?: string;
+  apiKey?: string;
+}
+
 /** Errors that should return a 400 (client-facing, expected). */
 const CLIENT_ERRORS: readonly string[] = [
   AnchorDiscoveryError.name,
@@ -30,27 +41,126 @@ export class FiatRampsService {
     private readonly appConfig: AppConfigService,
   ) {}
 
+  /**
+   * Retrieve the configured webhook secret for a specific anchor domain.
+   */
+  getAnchorSecret(anchorDomain: string): string | undefined {
+    if (!anchorDomain) return undefined;
+    const domainLower = anchorDomain.trim().toLowerCase();
+
+    // 1. Check ANCHOR_DIRECTORY_JSON entry
+    const configuredAnchors = this.parseAnchorDirectory();
+    const entry = configuredAnchors.find((a) => a.domain.trim().toLowerCase() === domainLower);
+    if (entry) {
+      const secret = entry.webhookSecret ?? entry.sharedSecret ?? entry.secret ?? entry.apiKey;
+      if (secret) return secret;
+    }
+
+    // 2. Check ANCHOR_WEBHOOK_SECRETS map from config
+    const secretsMap = this.appConfig.anchorWebhookSecrets;
+    for (const [key, val] of Object.entries(secretsMap)) {
+      if (key.trim().toLowerCase() === domainLower && val) {
+        return val;
+      }
+    }
+
+    // 3. Fallback default secret
+    return this.appConfig.anchorWebhookSecret;
+  }
+
+  /**
+   * Retrieve all configured anchor domains and their secrets.
+   */
+  getAllConfiguredAnchorSecrets(): Map<string, string> {
+    const map = new Map<string, string>();
+
+    // 1. Configured directory entries
+    for (const anchor of this.parseAnchorDirectory()) {
+      const secret = anchor.webhookSecret ?? anchor.sharedSecret ?? anchor.secret ?? anchor.apiKey;
+      if (secret) {
+        map.set(anchor.domain.trim().toLowerCase(), secret);
+      }
+    }
+
+    // 2. Configured secrets map
+    for (const [domain, secret] of Object.entries(this.appConfig.anchorWebhookSecrets)) {
+      if (secret) {
+        map.set(domain.trim().toLowerCase(), secret);
+      }
+    }
+
+    return map;
+  }
+
   async getAvailableAnchors(assetCode: string, country: string) {
     this.logger.log(`Fetching available anchors for ${assetCode} in ${country}`);
+
+    const configuredAnchors = this.parseAnchorDirectory();
+    const requestedAsset = assetCode.trim().toUpperCase();
+    const requestedCountry = country.trim().toUpperCase();
+
+    const eligibleAnchors = configuredAnchors.filter((anchor) => {
+      const countries = anchor.supportedCountries ?? [];
+      return (
+        countries.length === 0 ||
+        countries.some((supportedCountry) => supportedCountry.toUpperCase() === requestedCountry)
+      );
+    });
+
+    const discoveredAnchors = await Promise.all(
+      eligibleAnchors.map(async (anchor) => {
+        try {
+          const capabilities = await this.anchorClient.discoverAnchorCapabilities(anchor.domain);
+          if (!capabilities.supportedAssets.includes(requestedAsset)) {
+            return null;
+          }
+
+          return {
+            id: anchor.domain,
+            name: anchor.name ?? anchor.domain,
+            domain: anchor.domain,
+            supportedAssets: capabilities.supportedAssets,
+            type: anchor.type ?? 'unknown',
+          };
+        } catch (error) {
+          this.logger.warn(
+            `Skipping unavailable anchor ${anchor.domain}: ${(error as Error).message}`,
+          );
+          return null;
+        }
+      }),
+    );
+
     return {
       status: 'success',
-      data: [
-        {
-          id: 'moneygram',
-          name: 'MoneyGram',
-          domain: 'moneygram.stellar.org',
-          supportedAssets: ['USDC', 'XLM'],
-          type: 'cash',
-        },
-        {
-          id: 'banxa',
-          name: 'Banxa',
-          domain: 'banxa.stellar.org',
-          supportedAssets: ['USDC', 'EURC'],
-          type: 'bank_transfer',
-        },
-      ],
+      data: discoveredAnchors.filter(
+        (anchor): anchor is NonNullable<typeof anchor> => anchor !== null,
+      ),
     };
+  }
+
+  public parseAnchorDirectory(): AnchorDirectoryEntry[] {
+    const raw = this.appConfig.anchorDirectoryJson;
+    if (!raw) return [];
+
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed.filter((entry): entry is AnchorDirectoryEntry => {
+        if (!entry || typeof entry !== 'object') return false;
+        const candidate = entry as Partial<AnchorDirectoryEntry>;
+        return (
+          typeof candidate.domain === 'string' &&
+          (candidate.supportedCountries === undefined ||
+            (Array.isArray(candidate.supportedCountries) &&
+              candidate.supportedCountries.every((value) => typeof value === 'string')))
+        );
+      });
+    } catch (error) {
+      this.logger.warn(`Ignoring invalid ANCHOR_DIRECTORY_JSON: ${(error as Error).message}`);
+      return [];
+    }
   }
 
   async initiateDeposit(depositDto: {

@@ -286,6 +286,16 @@ export class RecurringPaymentsService {
   }
 
   /**
+   * Get all links scheduled for execution within the next N hours
+   */
+  async getUpcomingLinksForNotification(
+    hoursAhead = 24,
+    previewScope?: string,
+  ): Promise<DbRecurringPaymentLink[]> {
+    return await this.repository.getUpcomingLinksForNotification(hoursAhead, previewScope);
+  }
+
+  /**
    * Mark a payment as successfully executed
    */
   async markPaymentSuccess(

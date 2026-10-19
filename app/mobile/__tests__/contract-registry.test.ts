@@ -12,10 +12,46 @@ function envelope(data: Record<string, unknown>, overrides: Record<string, unkno
   };
 }
 
+function responseHeaders(values: Record<string, string> = {}) {
+  const lower: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) lower[key.toLowerCase()] = value;
+  return {
+    get: (name: string) => lower[name.toLowerCase()] ?? null,
+  };
+}
+
 describe('ContractRegistryService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+  });
+
+
+  it('GETs the backend registry at /contracts/registry (no /api prefix) and parses network result', async () => {
+    const mockBody = envelope({
+      quickex: {
+        id: 'C321',
+        wasmHash: 'abc',
+        version: 1,
+        schemaVersion: '1.0.0',
+        schemaCompatibility: { min: '1.0.0', max: '1.0.0' },
+        networkPassphrase: 'Test SDF Network ; September 2015',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    const fetchMock = jest.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(mockBody) })
+    ) as jest.Mock;
+    global.fetch = fetchMock;
+
+    const result = await ContractRegistryService.sync('http://localhost:3000');
+
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:3000/contracts/registry', { headers: {} });
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/contracts/registry'));
+    expect(result.source).toBe('network');
+    expect(result.isStale).toBe(false);
+    expect(result.registry.quickex.id).toBe('C321');
+    expect(result.fetchedAt).toEqual(expect.any(Number));
   });
 
   it('fetches fresh registry and caches it', async () => {
@@ -25,6 +61,7 @@ describe('ContractRegistryService', () => {
     ) as jest.Mock;
 
     const result = await ContractRegistryService.sync('http://localhost');
+    expect(global.fetch).toHaveBeenCalledWith('http://localhost/contracts/registry', { headers: {} });
     expect(result.registry.quickex.id).toBe('C123');
     expect(result.source).toBe('network');
     expect(result.isStale).toBe(false);
@@ -32,6 +69,81 @@ describe('ContractRegistryService', () => {
       '@contract_registry',
       expect.stringContaining('C123')
     );
+  });
+
+  it('persists the response ETag alongside the cached data on a 200', async () => {
+    const mockBody = envelope({ quickex: { id: 'C123', version: 1 } });
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: responseHeaders({ ETag: 'W/"reg-1"' }),
+        json: () => Promise.resolve(mockBody),
+      })
+    ) as jest.Mock;
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+
+    await ContractRegistryService.sync('http://localhost');
+
+    const calls = (AsyncStorage.setItem as jest.Mock).mock.calls;
+    const stored = JSON.parse(calls[calls.length - 1][1]);
+    expect(stored.etag).toBe('W/"reg-1"');
+    expect(stored.data.quickex.id).toBe('C123');
+    // First sync has no cached ETag, so no conditional header is sent.
+    expect((global.fetch as jest.Mock).mock.calls[0][1].headers['If-None-Match']).toBeUndefined();
+  });
+
+  it('sends the cached ETag as If-None-Match and reuses the cache on 304', async () => {
+    const timestamp = Date.now();
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify({
+      timestamp,
+      data: { quickex: { id: 'C456', version: 1 } },
+      etag: 'W/"reg-1"',
+    }));
+    const json = jest.fn();
+    global.fetch = jest.fn(() =>
+      Promise.resolve({ ok: false, status: 304, headers: responseHeaders(), json })
+    ) as jest.Mock;
+
+    const result = await ContractRegistryService.sync('http://localhost');
+
+    expect(global.fetch).toHaveBeenCalledWith('http://localhost/contracts/registry', {
+      headers: { 'If-None-Match': 'W/"reg-1"' },
+    });
+    expect(json).not.toHaveBeenCalled();
+    expect(result.registry.quickex.id).toBe('C456');
+    expect(result.fetchedAt).toBe(timestamp);
+    expect(result.source).toBe('cache');
+    expect(result.isStale).toBe(false);
+  });
+
+  it('replaces the cached ETag and data when a conditional sync returns changed data', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify({
+      timestamp: Date.now(),
+      data: { quickex: { id: 'C456', version: 1 } },
+      etag: 'W/"reg-1"',
+    }));
+    const freshBody = envelope({ quickex: { id: 'C999', version: 2 } }, { version: 2, etag: 'W/"reg-2"' });
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: responseHeaders({ ETag: 'W/"reg-2"' }),
+        json: () => Promise.resolve(freshBody),
+      })
+    ) as jest.Mock;
+
+    const result = await ContractRegistryService.sync('http://localhost');
+
+    expect((global.fetch as jest.Mock).mock.calls[0][1].headers['If-None-Match']).toBe('W/"reg-1"');
+    expect(result.registry.quickex.id).toBe('C999');
+    expect(result.registry.quickex.version).toBe(2);
+    expect(result.source).toBe('network');
+
+    const calls = (AsyncStorage.setItem as jest.Mock).mock.calls;
+    const stored = JSON.parse(calls[calls.length - 1][1]);
+    expect(stored.etag).toBe('W/"reg-2"');
+    expect(stored.data.quickex.id).toBe('C999');
   });
 
   it('falls back to cache on network error', async () => {
@@ -150,3 +262,4 @@ describe('ContractRegistryService', () => {
       .rejects.toThrow('Registry unavailable and no cache found: Contract registry response payload is malformed');
   });
 });
+

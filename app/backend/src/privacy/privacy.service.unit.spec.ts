@@ -63,6 +63,20 @@ describe("PrivacyService", () => {
       expect(() => service.encryptRecipientForViewKey("address", "invalid-key"))
         .toThrow(BadRequestException);
     });
+
+    it("rejects private key PEM passed as recipientViewPublicKeyPem (#1215)", () => {
+      const { privateKey } = generateKeyPairSync("x25519");
+      const privatePem = privateKey
+        .export({ format: "pem", type: "pkcs8" })
+        .toString();
+
+      expect(() =>
+        service.encryptRecipientForViewKey("address", privatePem),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        service.encryptRecipientForViewKey("address", privatePem),
+      ).toThrow(/Private key material is not accepted/i);
+    });
   });
 
   describe("deriveSharedSecretHex validation", () => {

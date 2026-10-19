@@ -1,5 +1,4 @@
 import { useTheme as useThemeContext } from '../context/ThemeContext';
-import { ColorToken } from '../theme/tokens';
 
 /**
  * Enhanced theme hook with style generators
@@ -9,9 +8,10 @@ export function useTheme() {
 
   /**
    * Resolve a color token to current theme string
+   * Since tokens are already resolved for the current theme, just return the value
    */
-  const color = (token: ColorToken): string => {
-    return theme.resolve(token);
+  const color = (token: string): string => {
+    return token;
   };
 
   /**

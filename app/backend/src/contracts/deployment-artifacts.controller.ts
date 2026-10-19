@@ -11,6 +11,7 @@ import {
   ListDeploymentArtifactsQueryDto,
   UploadDeploymentArtifactDto,
 } from './dto/deployment-artifact.dto';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('contracts')
 @ApiHeader({
@@ -24,6 +25,7 @@ export class DeploymentArtifactsController {
   constructor(private readonly artifacts: DeploymentArtifactsService) {}
 
   @Post()
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.CREATED)
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Upload a signed deployment artifact' })
@@ -37,6 +39,7 @@ export class DeploymentArtifactsController {
   }
 
   @Get()
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'List deployment artifacts, optionally filtered by deployment or type' })
   @ApiResponse({ status: 200, type: [DeploymentArtifactResponseDto] })
@@ -50,6 +53,7 @@ export class DeploymentArtifactsController {
   }
 
   @Get(':id')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Download a deployment artifact by id, with checksum verification' })
   @ApiResponse({ status: 200, type: DeploymentArtifactDownloadResponseDto })

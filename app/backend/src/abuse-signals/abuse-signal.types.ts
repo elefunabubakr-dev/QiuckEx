@@ -12,6 +12,7 @@ export const SIGNAL_OUTCOMES = [
   "rate_limited",
   "error",
 ] as const;
+
 export type SignalOutcome = (typeof SIGNAL_OUTCOMES)[number];
 
 export const SIGNAL_TAGS = [
@@ -22,6 +23,7 @@ export const SIGNAL_TAGS = [
   "unknown_ua",
   "rapid_fire",
 ] as const;
+
 export type SignalTag = (typeof SIGNAL_TAGS)[number];
 
 export interface AbuseSignalRecord {

@@ -11,6 +11,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
 import { PaymentLinkService } from "./payment-link.service";
 import { PaymentLinkStatusDto } from "../dto/link/payment-link-status.dto";
 import { CustomThrottlerGuard } from "../auth/guards/custom-throttler.guard";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 @ApiTags("payment-links")
 @UseGuards(CustomThrottlerGuard)
@@ -19,6 +20,7 @@ export class PaymentLinkController {
   constructor(private readonly paymentLinkService: PaymentLinkService) {}
 
   @Get("status")
+  @RateLimitTier("public-read")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Get payment link status",

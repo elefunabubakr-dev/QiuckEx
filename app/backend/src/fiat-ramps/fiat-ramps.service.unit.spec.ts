@@ -38,6 +38,10 @@ const mockAnchorClient = {
 const mockAppConfig = {
   stellarNetworkPassphrase: 'Test SDF Network ; September 2015',
   stellarSecretKey: 'SCX6A3F3XCFW7IT3MY6DSZWULY4U6O5PZHILY3SAPU4QZIHUEO7JZLLS',
+  anchorDirectoryJson: JSON.stringify([
+    { domain: 'us.anchor.org', name: 'US Anchor', type: 'cash', supportedCountries: ['US'] },
+    { domain: 'eu.anchor.org', name: 'EU Anchor', type: 'bank_transfer', supportedCountries: ['DE'] },
+  ]),
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -84,7 +88,7 @@ describe('FiatRampsService', () => {
   let service: FiatRampsService;
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -101,14 +105,39 @@ describe('FiatRampsService', () => {
   // ─── getAvailableAnchors ──────────────────────────────────────────────────
 
   describe('getAvailableAnchors', () => {
-    it('returns available anchors for given asset and country', async () => {
+    it('discovers and filters anchors by asset and country', async () => {
+      mockAnchorClient.discoverAnchorCapabilities
+        .mockResolvedValueOnce({
+          transferServer: 'https://us.anchor.org/sep24',
+          authServer: 'https://us.anchor.org/auth',
+          supportedAssets: ['USDC', 'XLM'],
+        })
+        .mockResolvedValueOnce({
+          transferServer: 'https://eu.anchor.org/sep24',
+          authServer: 'https://eu.anchor.org/auth',
+          supportedAssets: ['EURC'],
+        });
+
       const result = await service.getAvailableAnchors('USDC', 'US');
 
       expect(result.status).toBe('success');
-      expect(result.data).toBeInstanceOf(Array);
-      expect(result.data.length).toBeGreaterThan(0);
-      expect(result.data[0]).toHaveProperty('domain');
-      expect(result.data[0]).toHaveProperty('supportedAssets');
+      expect(result.data).toEqual([
+        {
+          id: 'us.anchor.org',
+          name: 'US Anchor',
+          domain: 'us.anchor.org',
+          supportedAssets: ['USDC', 'XLM'],
+          type: 'cash',
+        },
+      ]);
+      expect(mockAnchorClient.discoverAnchorCapabilities).toHaveBeenCalledWith('us.anchor.org');
+    });
+
+    it('returns an empty list for unsupported asset or country', async () => {
+      const result = await service.getAvailableAnchors('USDC', 'NG');
+
+      expect(result).toEqual({ status: 'success', data: [] });
+      expect(mockAnchorClient.discoverAnchorCapabilities).not.toHaveBeenCalled();
     });
   });
 

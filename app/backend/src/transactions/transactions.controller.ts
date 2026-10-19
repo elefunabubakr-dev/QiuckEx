@@ -22,6 +22,7 @@ import {
 import { HorizonService } from "./horizon.service";
 
 import { ApiKeyGuard } from "../auth/guards/api-key.guard";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 import { TESTNET_CONTRACT_WRITES_FLAG } from "../feature-flags/contract-write-kill-switch.constants";
 import { EmergencyClassification } from "../feature-flags/emergency-entrypoint-registry";
 import { NetworkSafetyGuard } from "../feature-flags/network-safety.guard";
@@ -66,6 +67,7 @@ export class TransactionsController {
   ) {}
 
   @Get()
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: "Fetch recent Stellar transactions (payments)",
     description:
@@ -104,6 +106,7 @@ export class TransactionsController {
     return this.horizonService.getPayments(accountId, asset, limit, cursor);
   }
   @Post("compose")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard, ContractMethodAllowlistGuard)
   @RequiresFlag(TESTNET_CONTRACT_WRITES_FLAG)
@@ -118,6 +121,7 @@ export class TransactionsController {
   }
 
   @Post("build")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard, ContractMethodAllowlistGuard)
   @RequiresFlag(TESTNET_CONTRACT_WRITES_FLAG)
@@ -139,6 +143,7 @@ export class TransactionsController {
   }
 
   @Post("simulate")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard, ContractMethodAllowlistGuard)
   @RequiresFlag(TESTNET_CONTRACT_WRITES_FLAG)
@@ -159,6 +164,7 @@ export class TransactionsController {
   }
 
   @Post("submit")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @UseGuards(NetworkSafetyGuard)
   @RequiresFlag(TESTNET_CONTRACT_WRITES_FLAG)

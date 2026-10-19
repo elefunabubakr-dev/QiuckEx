@@ -15,6 +15,7 @@ import { ApiKeysService } from './api-keys.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 import { CursorPaginationQueryDto } from '../dto/pagination/pagination.dto';
 import { RequireOrgRole } from '../auth/decorators/require-org-role.decorator';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('api-keys')
 @Controller('api-keys')
@@ -26,6 +27,7 @@ export class ApiKeysController {
    * Creates a new API key. The raw key is returned ONCE in the response.
    */
   @Post()
+  @RateLimitTier("mutation")
   @RequireOrgRole('admin')
   create(@Body() dto: CreateApiKeyDto, @Req() req: Request) {
     const actor = req.organizationContext?.organizationId ?? req.apiKey?.id ?? 'admin';
@@ -43,6 +45,7 @@ export class ApiKeysController {
    * Lists all active keys (masked) with cursor-based pagination. Optionally filter by owner_id.
    */
   @Get()
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: 'List API keys with cursor-based pagination' })
   @ApiQuery({ name: 'owner_id', required: false })
   @ApiQuery({ name: 'cursor', required: false, description: 'Opaque pagination cursor' })
@@ -66,6 +69,7 @@ export class ApiKeysController {
    * Returns aggregated usage/quota stats.
    */
   @Get('usage')
+  @RateLimitTier("public-read")
   usage(@Req() req: Request, @Query('owner_id') ownerId?: string) {
     return this.service.getUsage(ownerId, req.organizationContext?.organizationId);
   }
@@ -75,6 +79,7 @@ export class ApiKeysController {
    * Revokes (soft-deletes) a key.
    */
   @Delete(':id')
+  @RateLimitTier("mutation")
   @RequireOrgRole('admin')
   revoke(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const actor = req.organizationContext?.organizationId ?? req.apiKey?.id ?? 'admin';
@@ -86,6 +91,7 @@ export class ApiKeysController {
    * Invalidates the current key and issues a new one.
    */
   @Post(':id/rotate')
+  @RateLimitTier("mutation")
   @RequireOrgRole('admin')
   rotate(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const actor = req.organizationContext?.organizationId ?? req.apiKey?.id ?? 'admin';

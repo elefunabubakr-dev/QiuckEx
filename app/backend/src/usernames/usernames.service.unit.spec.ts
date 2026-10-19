@@ -23,6 +23,9 @@ describe('UsernamesService', () => {
     getRecentlyActiveUsers: jest.fn(),
     getFeaturedUsernames: jest.fn(),
     getPublicProfile: jest.fn(),
+    getProfileForOwner: jest.fn(),
+    updateProfileCustomization: jest.fn(),
+    getPublicProfileForDisplay: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -109,19 +112,19 @@ describe('UsernamesService', () => {
   describe('create', () => {
     it('creates username and returns ok', async () => {
       mockUsernamesRepository.claimUsernameWithOutbox.mockResolvedValueOnce(undefined);
-      const result = await service.create('alice_123', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR');
+      const result = await service.create('alice_123', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB');
       expect(result).toEqual({ ok: true });
       expect(mockUsernamesRepository.claimUsernameWithOutbox).toHaveBeenCalledWith(
         'alice_123',
-        'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
         expect.any(String),
-        expect.objectContaining({ username: 'alice_123', publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR' }),
+        expect.objectContaining({ username: 'alice_123', publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB' }),
       );
     });
 
     it('normalizes username to lowercase before insert', async () => {
       mockUsernamesRepository.claimUsernameWithOutbox.mockResolvedValueOnce(undefined);
-      await service.create('Alice_99', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR');
+      await service.create('Alice_99', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB');
       expect(mockUsernamesRepository.claimUsernameWithOutbox).toHaveBeenCalledWith(
         'alice_99',
         expect.any(String),
@@ -136,7 +139,7 @@ describe('UsernamesService', () => {
       );
 
       await expect(
-        service.create('taken', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR'),
+        service.create('taken', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB'),
       ).rejects.toThrow(UsernameConflictError);
     });
 
@@ -145,7 +148,7 @@ describe('UsernamesService', () => {
         new UsernameConflictError('taken')
       );
       try {
-        await service.create('taken', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR');
+        await service.create('taken', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB');
       } catch (e) {
         expect(e).toBeInstanceOf(UsernameConflictError);
         expect((e as UsernameConflictError).username).toBe('taken');
@@ -155,7 +158,7 @@ describe('UsernamesService', () => {
 
     it('throws UsernameValidationError for invalid format', async () => {
       await expect(
-        service.create('ab', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR'),
+        service.create('ab', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB'),
       ).rejects.toThrow(UsernameValidationError);
     });
 
@@ -164,7 +167,7 @@ describe('UsernamesService', () => {
       mockUsernamesRepository.countUsernamesByPublicKey.mockResolvedValueOnce(2);
 
       await expect(
-        service.create('newuser', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR'),
+        service.create('newuser', 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB'),
       ).rejects.toThrow(UsernameLimitExceededError);
     });
   });
@@ -175,14 +178,14 @@ describe('UsernamesService', () => {
         {
           id: 'id1',
           username: 'alice',
-          public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+          public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
           created_at: '2025-01-01T00:00:00Z',
         },
       ];
       mockUsernamesRepository.listUsernamesByPublicKey.mockResolvedValueOnce(rows);
 
       const result = await service.listByPublicKey(
-        'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
       );
       expect(result).toEqual(rows);
     });
@@ -303,7 +306,201 @@ describe('UsernamesService', () => {
       const first = await service.getTrendingCreators(24, 3);
       const second = await service.getTrendingCreators(24, 3);
 
-      expect(second.data.map((r) => r.id)).toEqual(first.data.map((r) => r.id));
+expect(second.data.map((r) => r.id)).toEqual(first.data.map((r) => r.id));
+    });
+  });
+
+  describe('getOwnedProfile', () => {
+    const publicKey = 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB';
+    const profile = {
+      id: 'id-1',
+      username: 'alice_123',
+      public_key: publicKey,
+      created_at: '2025-01-01T00:00:00.000Z',
+      is_public: true,
+      primary_color: '#6366f1',
+      avatar_url: 'https://cdn.example.com/avatar.png',
+      bio: 'Building payments',
+      twitter_handle: 'stellarorg',
+      discord_handle: 'user#1234',
+      github_handle: 'stellar',
+    };
+
+    it('returns profile when public key matches', async () => {
+      mockUsernamesRepository.getProfileForOwner.mockResolvedValueOnce(profile);
+
+      const result = await service.getOwnedProfile('alice_123', publicKey);
+
+      expect(result).toEqual(profile);
+      expect(mockUsernamesRepository.getProfileForOwner).toHaveBeenCalledWith(
+        'alice_123',
+      );
+    });
+
+    it('throws NOT_FOUND when profile does not exist', async () => {
+      mockUsernamesRepository.getProfileForOwner.mockResolvedValueOnce(null);
+
+      await expect(service.getOwnedProfile('missing', publicKey)).rejects.toThrow(
+        UsernameValidationError,
+      );
+    });
+
+    it('throws NOT_FOUND when public key does not match', async () => {
+      mockUsernamesRepository.getProfileForOwner.mockResolvedValueOnce({
+        ...profile,
+        public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7AAA', // different
+      });
+
+      await expect(service.getOwnedProfile('alice_123', publicKey)).rejects.toThrow(
+        UsernameValidationError,
+      );
+    });
+  });
+
+  describe('updateOwnedProfile', () => {
+    const publicKey = 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB';
+    const current = {
+      id: 'id-1',
+      username: 'alice_123',
+      public_key: publicKey,
+      created_at: '2025-01-01T00:00:00.000Z',
+      is_public: true,
+      primary_color: '#6366f1',
+      avatar_url: 'https://cdn.example.com/avatar.png',
+      bio: 'Old bio',
+      twitter_handle: 'oldhandle',
+      discord_handle: 'old#1234',
+      github_handle: 'olduser',
+    };
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockUsernamesRepository.getProfileForOwner.mockResolvedValue(current);
+      mockUsernamesRepository.updateProfileCustomization.mockImplementation(
+        async (_username: string, customization) => ({
+          ...current,
+          ...customization,
+        }),
+      );
+    });
+
+    it('updates only provided fields, leaves others unchanged', async () => {
+      const result = await service.updateOwnedProfile({
+        username: 'alice_123',
+        publicKey,
+        bio: 'New bio',
+        primaryColor: null, // clear
+      });
+
+      expect(result.bio).toBe('New bio');
+      expect(result.primary_color).toBeNull();
+      expect(result.avatar_url).toBe(current.avatar_url); // unchanged
+      expect(result.twitter_handle).toBe(current.twitter_handle); // unchanged
+      expect(result.discord_handle).toBe(current.discord_handle); // unchanged
+      expect(result.github_handle).toBe(current.github_handle); // unchanged
+    });
+
+    it('clears fields when null is provided', async () => {
+      const result = await service.updateOwnedProfile({
+        username: 'alice_123',
+        publicKey,
+        bio: null,
+        avatarUrl: null,
+      });
+
+      expect(result.bio).toBeNull();
+      expect(result.avatar_url).toBeNull();
+      expect(result.primary_color).toBe(current.primary_color); // unchanged
+    });
+
+    it('normalizes handle inputs (drops leading @)', async () => {
+      const result = await service.updateOwnedProfile({
+        username: 'alice_123',
+        publicKey,
+        twitterHandle: '@stellarorg',
+        githubHandle: '@stellar',
+      });
+
+      expect(result.twitter_handle).toBe('stellarorg');
+      expect(result.github_handle).toBe('stellar');
+    });
+
+    it('throws NOT_FOUND when profile does not exist', async () => {
+      mockUsernamesRepository.getProfileForOwner.mockResolvedValueOnce(null);
+
+      await expect(
+        service.updateOwnedProfile({
+          username: 'missing',
+          publicKey,
+          bio: 'x',
+        }),
+      ).rejects.toThrow(UsernameValidationError);
+    });
+
+    it('throws NOT_FOUND when public key does not match', async () => {
+      mockUsernamesRepository.getProfileForOwner.mockResolvedValueOnce({
+        ...current,
+        public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7AAA',
+      });
+
+      await expect(
+        service.updateOwnedProfile({
+          username: 'alice_123',
+          publicKey,
+          bio: 'x',
+        }),
+      ).rejects.toThrow(UsernameValidationError);
+    });
+  });
+
+  describe('getPublicProfileForDisplay', () => {
+    const fullProfile = {
+      id: 'id-1',
+      username: 'alice_123',
+      public_key: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
+      created_at: '2025-01-01T00:00:00.000Z',
+      is_public: true,
+      primary_color: '#6366f1',
+      avatar_url: 'https://cdn.example.com/avatar.png',
+      bio: 'Building payments',
+      twitter_handle: 'stellarorg',
+      discord_handle: 'user#1234',
+      github_handle: 'stellar',
+    };
+
+    it('returns camelCase ProfileResponseDto for public profile', async () => {
+      mockUsernamesRepository.getPublicProfileForDisplay.mockResolvedValueOnce(fullProfile);
+
+      const result = await service.getPublicProfileForDisplay('alice_123');
+
+      expect(result).not.toBeNull();
+      expect(result).toHaveProperty('primaryColor', '#6366f1');
+      expect(result).toHaveProperty('avatarUrl', 'https://cdn.example.com/avatar.png');
+      expect(result).toHaveProperty('bio', 'Building payments');
+      expect(result).toHaveProperty('twitterHandle', 'stellarorg');
+      expect(result).toHaveProperty('discordHandle', 'user#1234');
+      expect(result).toHaveProperty('githubHandle', 'stellar');
+      expect(result).toHaveProperty('username', 'alice_123');
+      expect(result).toHaveProperty('publicKey');
+      expect(result).toHaveProperty('isPublic', true);
+      expect(result).toHaveProperty('createdAt', '2025-01-01T00:00:00.000Z');
+      expect(result).toHaveProperty('id', 'id-1');
+    });
+
+    it('returns null for private profile', async () => {
+      mockUsernamesRepository.getPublicProfileForDisplay.mockResolvedValueOnce(null);
+
+      const result = await service.getPublicProfileForDisplay('private_user');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for non-existent profile', async () => {
+      mockUsernamesRepository.getPublicProfileForDisplay.mockResolvedValueOnce(null);
+
+      const result = await service.getPublicProfileForDisplay('nonexistent');
+
+      expect(result).toBeNull();
     });
   });
 

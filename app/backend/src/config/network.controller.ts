@@ -3,6 +3,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppConfigService } from './app-config.service';
 import { BootstrapResponseDto } from './bootstrap.dto';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('network')
 @Controller('v1/network')
@@ -13,6 +14,7 @@ export class NetworkController {
   ) {}
 
   @Get()
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: 'Read-only network runtime configuration',
     description:
@@ -37,6 +39,7 @@ export class NetworkController {
   }
 
   @Get('bootstrap')
+  @RateLimitTier("public-read")
   @ApiOperation({
     summary: 'Get application bootstrap configuration',
     description:

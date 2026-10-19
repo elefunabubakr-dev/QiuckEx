@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { StrKey } from "@stellar/stellar-base";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -23,12 +24,13 @@ export default function AddContactScreen() {
   }
 
   async function handleSave() {
-    if (!address.trim()) {
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress) {
       Alert.alert("Error", "Address is required");
       return;
     }
     
-    if (!address.startsWith("0x") && address.length !== 42) {
+    if (!StrKey.isValidEd25519PublicKey(trimmedAddress)) {
       Alert.alert("Error", "Please enter a valid wallet address");
       return;
     }
@@ -36,7 +38,7 @@ export default function AddContactScreen() {
     setSaving(true);
     try {
       await saveContact({
-        address: address.trim(),
+        address: trimmedAddress,
         nickname: nickname.trim() || `Contact_${Date.now()}`,
         tags: selectedTags,
       } as any);
@@ -65,7 +67,7 @@ export default function AddContactScreen() {
         <Text style={[styles.label, { color: theme.textSecondary }]}>Wallet Address *</Text>
         <TextInput
           style={[styles.input, { borderColor: theme.inputBorder, backgroundColor: theme.inputBg, color: theme.inputText }]}
-          placeholder="0x..."
+          placeholder="G..."
           placeholderTextColor={theme.inputPlaceholder}
           value={address}
           onChangeText={setAddress}

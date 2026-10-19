@@ -5,6 +5,17 @@ import {
   getMetadataLabel,
 } from '../../src/utils/build-metadata';
 
+// Mock the build configuration
+jest.mock('../../src/config/build', () => ({
+  APP_VERSION: '1.0.0',
+  BUILD_NUMBER: '123',
+  BUILD_TAG: 'main',
+  GIT_COMMIT: 'abc1234',
+  APP_ENVIRONMENT: 'dev',
+  STELLAR_NETWORK: 'testnet',
+  BUILD_METADATA: '1.0.0+123',
+}));
+
 describe('build-metadata utilities', () => {
   describe('getBuildMetadata', () => {
     it('should return build metadata with all required fields', () => {
@@ -42,6 +53,15 @@ describe('build-metadata utilities', () => {
       const metadata = getBuildMetadata();
 
       expect(metadata.buildMetadata).toMatch(/^[\w.]+\+\d+$/);
+    });
+
+    it('should use GIT_COMMIT for gitCommit field instead of parsing BUILD_TAG', () => {
+      const metadata = getBuildMetadata();
+
+      // GIT_COMMIT is mocked to 'abc1234', BUILD_TAG is 'main'
+      // gitCommit should be the mocked GIT_COMMIT value, not parsed from BUILD_TAG
+      expect(metadata.gitCommit).toBe('abc1234');
+      expect(metadata.gitBranch).toBe('main');
     });
   });
 

@@ -19,6 +19,7 @@
  * ## Structure
  * 
  * - `username/` - Username-related DTOs
+ * - `profile/` - Profile settings DTOs
  * - `link/` - Payment link metadata DTOs
  * - `transaction/` - Transaction query DTOs
  * - `validators/` - Reusable validation decorators
@@ -26,6 +27,9 @@
 
 // Username DTOs
 export * from './username';
+
+// Profile DTOs
+export * from './profile';
 
 // Link DTOs
 export * from './link';

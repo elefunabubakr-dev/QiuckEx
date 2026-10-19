@@ -1,5 +1,6 @@
 import { Link, useRouter } from "expo-router";
 import React from "react";
+import { BuildMetadataPanel } from "../components/BuildMetadataPanel";
 import { EnvironmentSwitcher } from "../components/EnvironmentSwitcher";
 import {
   Alert,
@@ -26,18 +27,14 @@ import {
 import { useTheme } from "../src/theme/ThemeContext";
 import {
   APP_ENVIRONMENT,
-  APP_VERSION,
-  BUILD_METADATA,
-  BUILD_TAG,
   IS_DEBUG_BUILD,
-  STELLAR_NETWORK,
 } from "../src/config/build";
 
-const FREQUENCY_OPTIONS: Array<{
+const FREQUENCY_OPTIONS: {
   value: SyncFrequency;
   label: string;
   helper: string;
-}> = [
+}[] = [
   {
     value: "battery-saver",
     label: "Battery Saver",
@@ -215,7 +212,7 @@ export default function SettingsScreen() {
           <Text style={[styles.cardTitle, { color: theme.textPrimary }]} accessibilityRole="header">
             Background Sync
           </Text>
-          <Text style={[styles.helper, { color: theme.textMuted }]}>
+          <Text style={[styles.helper, { color: theme.textMuted }]}> 
             Uses Expo background tasks when available and falls back to
             foreground refreshes when periodic work is unavailable.
           </Text>
@@ -226,10 +223,10 @@ export default function SettingsScreen() {
             accessibilityRole="none"
           >
             <View style={styles.rowCopy} accessibilityElementsHidden={true} importantForAccessibility="no">
-              <Text style={[styles.label, { color: theme.textPrimary }]}>
+              <Text style={[styles.label, { color: theme.textPrimary }]}> 
                 Periodic Sync
               </Text>
-              <Text style={[styles.helper, { color: theme.textMuted }]}>
+              <Text style={[styles.helper, { color: theme.textMuted }]}> 
                 Refresh notifications and recent activity without opening the
                 app.
               </Text>
@@ -254,10 +251,10 @@ export default function SettingsScreen() {
             accessibilityRole="none"
           >
             <View style={styles.rowCopy} accessibilityElementsHidden={true} importantForAccessibility="no">
-              <Text style={[styles.label, { color: theme.textPrimary }]}>
+              <Text style={[styles.label, { color: theme.textPrimary }]}> 
                 Wi-Fi Only
               </Text>
-              <Text style={[styles.helper, { color: theme.textMuted }]}>
+              <Text style={[styles.helper, { color: theme.textMuted }]}> 
                 Skip background work on mobile data for better battery life.
               </Text>
             </View>
@@ -397,61 +394,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: theme.surface, borderColor: theme.border },
-          ]}
-        >
-          <Text style={[styles.cardTitle, { color: theme.textPrimary }]} accessibilityRole="header">Build Info</Text>
-
-          <View style={styles.row} accessibilityLabel={`Version: ${APP_VERSION}`}>
-            <Text style={[styles.label, { color: theme.textPrimary }]} accessibilityElementsHidden={true} importantForAccessibility="no">Version</Text>
-            <Text style={[styles.helper, { color: theme.textMuted }]} accessibilityElementsHidden={true} importantForAccessibility="no"> 
-              {APP_VERSION}
-            </Text>
-          </View>
-
-          <View style={styles.row} accessibilityLabel={`Build: ${BUILD_METADATA}`}>
-            <Text style={[styles.label, { color: theme.textPrimary }]} accessibilityElementsHidden={true} importantForAccessibility="no">Build</Text>
-            <Text style={[styles.helper, { color: theme.textMuted }]} accessibilityElementsHidden={true} importantForAccessibility="no"> 
-              {BUILD_METADATA}
-            </Text>
-          </View>
-
-          <View
-            style={styles.row}
-            accessibilityLabel={`Environment: ${APP_ENVIRONMENT}${APP_ENVIRONMENT === 'staging' ? ', staging build badge displayed.' : '.'}`}
-          >
-            <Text style={[styles.label, { color: theme.textPrimary }]} accessibilityElementsHidden={true} importantForAccessibility="no">Environment</Text>
-            <View style={styles.envBadgeRow} accessibilityElementsHidden={true} importantForAccessibility="no">
-              {APP_ENVIRONMENT === 'staging' ? (
-                <View style={[styles.envBadge, { backgroundColor: '#F3E8FF', borderColor: '#A855F7' }]}>
-                  <Text style={[styles.envBadgeText, { color: '#6B21A8' }]}>STAGING</Text>
-                </View>
-              ) : null}
-              <Text style={[styles.helper, { color: theme.textMuted }]}> 
-                {APP_ENVIRONMENT}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.row} accessibilityLabel={`Stellar Network: ${STELLAR_NETWORK}`}>
-            <Text style={[styles.label, { color: theme.textPrimary }]} accessibilityElementsHidden={true} importantForAccessibility="no">Network</Text>
-            <Text style={[styles.helper, { color: theme.textMuted }]} accessibilityElementsHidden={true} importantForAccessibility="no"> 
-              {STELLAR_NETWORK}
-            </Text>
-          </View>
-
-          {BUILD_TAG ? (
-            <View style={styles.row} accessibilityLabel={`Build Tag: ${BUILD_TAG}`}>
-              <Text style={[styles.label, { color: theme.textPrimary }]} accessibilityElementsHidden={true} importantForAccessibility="no">Tag</Text>
-              <Text style={[styles.helper, { color: theme.textMuted }]} accessibilityElementsHidden={true} importantForAccessibility="no"> 
-                {BUILD_TAG}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        <BuildMetadataPanel />
 
         <View
           style={[
@@ -471,10 +414,10 @@ export default function SettingsScreen() {
               accessibilityHint="Double-tap to navigate to the feedback form"
             >
               <View style={styles.rowCopy} accessibilityElementsHidden={true} importantForAccessibility="no">
-                <Text style={[styles.label, { color: theme.textPrimary }]}>
+                <Text style={[styles.label, { color: theme.textPrimary }]}> 
                   Send Feedback
                 </Text>
-                <Text style={[styles.helper, { color: theme.textMuted }]}>
+                <Text style={[styles.helper, { color: theme.textMuted }]}> 
                   Report an issue or idea. Build and environment details are
                   attached automatically.
                 </Text>
@@ -693,21 +636,5 @@ const styles = StyleSheet.create({
   debugButtonText: {
     fontSize: 14,
     fontWeight: "600",
-  },
-  envBadgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  envBadge: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  envBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
   },
 });

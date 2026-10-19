@@ -15,6 +15,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from "@nestjs/swagger";
 import { TelegramRepository } from "./telegram.repository";
 import { TelegramBotService } from "./telegram-bot.service";
+import { RateLimitTier } from "../../auth/decorators/rate-limit-group.decorator";
 
 /**
  * DTO for verifying Telegram account linkage
@@ -67,6 +68,7 @@ export class TelegramController {
    * Check if a Telegram account is linked to QuickEx
    */
   @Get("status/:telegramId")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "Check Telegram account linkage status" })
   @ApiParam({ name: "telegramId", description: "Telegram user ID" })
   @ApiResponse({
@@ -106,6 +108,7 @@ export class TelegramController {
    * Verify a Telegram account linkage with the verification code
    */
   @Post("verify/:telegramId")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Verify Telegram account linkage" })
   @ApiParam({ name: "telegramId", description: "Telegram user ID" })
@@ -146,6 +149,7 @@ export class TelegramController {
    * Update Telegram notification settings
    */
   @Put("settings/:telegramId")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Update Telegram notification settings" })
   @ApiParam({ name: "telegramId", description: "Telegram user ID" })
@@ -193,6 +197,7 @@ export class TelegramController {
    * Unlink a Telegram account from QuickEx
    */
   @Delete("link/:telegramId")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Unlink Telegram account" })
   @ApiParam({ name: "telegramId", description: "Telegram user ID" })

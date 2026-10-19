@@ -52,16 +52,37 @@ certify that today's sizes are acceptable.
 
 | Route | Measured | Budget now | Original FE-65 budget |
 | --- | --- | --- | --- |
-| `/dashboard` | 834 KB | 860 KB | 225 KB |
+| `/dashboard` | 436 KB | 460 KB | 225 KB |
 | `/generator` | 489 KB | 505 KB | 254 KB |
 | `/` | 432 KB | 445 KB | 186 KB |
 | `/pay` | 397 KB | 410 KB | 195 KB |
 | `/discovery` | 358 KB | 370 KB | 215 KB |
 
-Those original numbers are a reasonable ambition — 834 KB of first-load JS on
-`/dashboard` is a genuine performance problem, not a budgeting mistake. Ratchet
-the budgets back down as routes are code-split and dependencies trimmed; the
-gate will hold each improvement in place.
+Those original numbers are a reasonable ambition. Ratchet the budgets back down
+as routes are code-split and dependencies trimmed; the gate will hold each
+improvement in place.
+
+### `/dashboard` remediation (2026-10-18)
+
+`/dashboard` was measured at 834 KB (838 KB re-measured with
+`scripts/bundle-budget.mjs` before the change). A bundle analysis of its
+first-load chunks showed a single largest contributor: a ~411 KB chunk
+containing `recharts` (plus its `immer`/`react-redux` dependencies), pulled in
+only by `AnalyticsDashboard`. That component is now loaded with `next/dynamic`
+(`ssr: false`, with a skeleton placeholder), so the charts load after the page
+shell instead of in first-load JS.
+
+| | First-load JS |
+| --- | --- |
+| Before | 838 KB (budget 860 KB) |
+| After | 436 KB (budget 460 KB) |
+| Original FE-65 budget | 225 KB |
+
+**Remaining gap to the original budget: ~211 KB.** What is left is mostly
+framework code shared by every route (`react-dom`/Next runtime, ~346 KB raw) and
+`i18next` from the root layout (~42 KB), which are not dashboard-specific. Closing
+the rest of the gap needs app-wide work (shared layout dependencies) rather than
+further changes to the dashboard route.
 
 ## Core Web Vitals (FE-66)
 

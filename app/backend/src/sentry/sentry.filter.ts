@@ -9,6 +9,7 @@ import {
 import { Request } from 'express';
 import { SentryService } from './sentry.service';
 import { AppConfigService } from '../config';
+import { isPrivacyDebugPath } from '../privacy/privacy-debug.guard';
 
 /**
  * SentryExceptionFilter catches all unhandled exceptions,
@@ -38,9 +39,17 @@ export class SentryExceptionFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
+    // #1215: Exclude stealth privacy debug endpoints from remote crash/error reporting
+    const isExcludedDebugRoute = isPrivacyDebugPath(
+      request.originalUrl ?? request.url ?? request.path,
+    );
+
     // Only report server errors (5xx) and unexpected exceptions to Sentry.
     // 4xx errors are client mistakes and would generate too much noise.
-    if (status >= 500 || !(exception instanceof HttpException)) {
+    if (
+      !isExcludedDebugRoute &&
+      (status >= 500 || !(exception instanceof HttpException))
+    ) {
       const requestContext = this.buildRequestContext(request);
 
       this.sentryService.captureException(exception, {
@@ -76,8 +85,12 @@ export class SentryExceptionFilter implements ExceptionFilter {
       context.query = this.sanitise(request.query as Record<string, unknown>);
     }
 
-    // Sanitise request body
-    if (request.body && Object.keys(request.body).length > 0) {
+    // Sanitise request body (omit completely on privacy debug paths)
+    if (
+      request.body &&
+      Object.keys(request.body).length > 0 &&
+      !isPrivacyDebugPath(request.originalUrl ?? request.url ?? request.path)
+    ) {
       context.body = this.sanitise(request.body as Record<string, unknown>);
     }
 
@@ -117,6 +130,13 @@ export class SentryExceptionFilter implements ExceptionFilter {
       'seed',
       'private_key',
       'privateKey',
+      'privatekey',
+      'privateKeyPem',
+      'privatekeypem',
+      'private_key_pem',
+      'recipientViewPrivateKeyPem',
+      'recipientviewprivatekeypem',
+      'recipient_view_private_key_pem',
       'stellar_secret_key',
     ]);
 

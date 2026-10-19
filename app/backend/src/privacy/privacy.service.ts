@@ -21,6 +21,11 @@ export type StealthEnvelope = {
 
 @Injectable()
 export class PrivacyService {
+  /**
+   * Production non-custodial stealth envelope encryption.
+   * Requires ONLY the recipient's public view key (SPKI PEM).
+   * Explicitly rejects private-key PEM strings if supplied (#1215).
+   */
   encryptRecipientForViewKey(
     recipientAddress: string,
     recipientViewPublicKeyPem: string,
@@ -31,11 +36,19 @@ export class PrivacyService {
     if (!recipientViewPublicKeyPem || typeof recipientViewPublicKeyPem !== "string") {
       throw new BadRequestException("Recipient view public key is required");
     }
+    if (/PRIVATE\s+KEY/i.test(recipientViewPublicKeyPem)) {
+      throw new BadRequestException(
+        "Private key material is not accepted; provide a recipient view public key (SPKI PEM)",
+      );
+    }
 
     let recipientKey: KeyObject;
     try {
       recipientKey = createPublicKey(recipientViewPublicKeyPem);
     } catch {
+      throw new BadRequestException("Invalid recipient view public key format");
+    }
+    if (recipientKey.type !== "public" || recipientKey.asymmetricKeyType !== "x25519") {
       throw new BadRequestException("Invalid recipient view public key format");
     }
 
@@ -61,6 +74,11 @@ export class PrivacyService {
     };
   }
 
+  /**
+   * Local/dev-only integration test helper (#1215).
+   * Production stealth-address flows must derive shared secrets client-side
+   * so private keys never transit the network.
+   */
   deriveSharedSecretHex(
     privateKeyPem: string,
     publicKeyPem: string,
@@ -88,6 +106,11 @@ export class PrivacyService {
     return diffieHellman({ privateKey, publicKey }).toString("hex");
   }
 
+  /**
+   * Local/dev-only integration test helper (#1215).
+   * Production stealth-address flows must decrypt recipient envelopes client-side
+   * so view private keys never transit the network.
+   */
   decryptRecipientEnvelope(
     envelope: StealthEnvelope,
     recipientViewPrivateKeyPem: string,

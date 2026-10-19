@@ -42,7 +42,7 @@ describe('Shared Validators', () => {
 
     it('should accept valid Stellar public keys', async () => {
       // Valid 56-character Stellar public key (G + 55 base32 chars)
-      const validKey = 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWRABCDEFGHIJKL';
+      const validKey = 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB';
       const dto = plainToInstance(TestDto, {
         publicKey: validKey,
       });
@@ -154,7 +154,7 @@ describe('Shared Validators', () => {
   describe('CreateUsernameDto integration', () => {
     it('should validate complete CreateUsernameDto', async () => {
       // Valid 56-character Stellar public key (G + 55 base32 chars)
-      const validKey = 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWRABCDEFGHIJKL';
+      const validKey = 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB';
       const dto = plainToInstance(CreateUsernameDto, {
         username: 'alice_123',
         publicKey: validKey,
@@ -166,7 +166,7 @@ describe('Shared Validators', () => {
     it('should reject CreateUsernameDto with invalid username', async () => {
       const dto = plainToInstance(CreateUsernameDto, {
         username: 'Alice-123',
-        publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR',
+        publicKey: 'GBXGQ55JMQ4L2B6E7S8Y9Z0A1B2C3D4E5F6G7H8I7YWR1234567890AB',
       });
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);

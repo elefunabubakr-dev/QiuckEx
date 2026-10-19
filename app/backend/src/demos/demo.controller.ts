@@ -10,7 +10,7 @@ import {
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
-import { RateLimitGroupTag } from '../auth/decorators/rate-limit-group.decorator';
+import { RateLimitGroupTag, RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 import { DemoService, DemoClearResult, DemoSeedResult } from './demo.service';
 
 @ApiTags('demo')
@@ -26,6 +26,7 @@ export class DemoController {
   constructor(private readonly demoService: DemoService) {}
 
   @Post('seed')
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -41,6 +42,7 @@ export class DemoController {
   }
 
   @Delete()
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @RequireScopes('admin')
   @ApiOperation({
@@ -56,6 +58,7 @@ export class DemoController {
   }
 
   @Get('status')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({
     summary: 'Demo seed status (admin, testnet only)',

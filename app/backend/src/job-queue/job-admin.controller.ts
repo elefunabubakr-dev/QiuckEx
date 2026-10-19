@@ -28,6 +28,7 @@ import { JobReplayRepository } from './job-replay.repository';
 import { JobType, JobStatus, Job } from './types';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
+import { RateLimitTier } from '../auth/decorators/rate-limit-group.decorator';
 
 /**
  * DTO for bulk retry request
@@ -94,6 +95,7 @@ export class JobAdminController {
    * **Validates: Requirements 5.1, 5.5**
    */
   @Get()
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'List jobs with filters' })
   @ApiResponse({ status: 200, description: 'Paginated job list' })
@@ -125,6 +127,7 @@ export class JobAdminController {
    * **Validates: Requirement 5.2**
    */
   @Get(':id')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Get job details by ID' })
   @ApiResponse({ status: 200, description: 'Job details' })
@@ -149,6 +152,7 @@ export class JobAdminController {
    * **Validates: Requirements 6.1, 6.2, 6.3**
    */
   @Post(':id/cancel')
+  @RateLimitTier("mutation")
   @RequireScopes('admin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel a job' })
@@ -170,6 +174,7 @@ export class JobAdminController {
    * **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
    */
   @Post(':id/retry')
+  @RateLimitTier("mutation")
   @RequireScopes('admin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Manually retry a failed job' })
@@ -237,6 +242,7 @@ export class JobAdminController {
    * **Validates: Requirement 14.5**
    */
   @Post('bulk-retry')
+  @RateLimitTier("mutation")
   @RequireScopes('admin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Bulk retry jobs by type' })
@@ -291,6 +297,7 @@ export class JobAdminController {
    * Returns all manual replay attempts for a job, providing full audit trail.
    */
   @Get(':id/replays')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Get replay history for a job' })
   @ApiResponse({ status: 200, description: 'Replay history retrieved' })
@@ -313,6 +320,7 @@ export class JobAdminController {
    * **Validates: Requirement 5.3**
    */
   @Get('metrics/summary')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Get job metrics summary' })
   @ApiResponse({ status: 200, description: 'Job metrics' })
@@ -375,6 +383,7 @@ export class JobAdminController {
    * **Validates: Requirement 5.4**
    */
   @Get('dlq')
+  @RateLimitTier("public-read")
   @RequireScopes('admin')
   @ApiOperation({ summary: 'Get dead letter queue jobs' })
   @ApiResponse({ status: 200, description: 'DLQ jobs' })

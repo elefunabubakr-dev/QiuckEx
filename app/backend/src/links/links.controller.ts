@@ -19,6 +19,7 @@ import { LinksService } from "./links.service";
 import { LinkMetadataRequestDto, LinkMetadataResponseDto } from "../dto";
 import { LinkValidationError } from "./errors";
 import { ApiKeyGuard } from "../auth/guards/api-key.guard";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 import {
   IdempotencyInterceptor,
   IDEMPOTENCY_KEY_HEADER,
@@ -44,6 +45,7 @@ export class LinksController {
   constructor(private readonly linksService: LinksService) {}
 
   @Post("metadata")
+  @RateLimitTier("mutation")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Generate canonical link metadata",

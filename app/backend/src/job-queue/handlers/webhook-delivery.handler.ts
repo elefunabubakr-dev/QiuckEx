@@ -8,10 +8,12 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { JobHandler, Job, CancellationToken } from '../types';
+import { JobHandler, Job, CancellationToken, JobStatus } from '../types';
 import { WebhookDeliveryPayload } from '../types/job-payloads.types';
 import { NotificationLogRepository } from '../../notifications/notification-log.repository';
 import { NotificationEventType } from '../../notifications/types/notification.types';
+import { WebhookProvider } from '../../notifications/providers/notification-provider.interface';
+import { JobRepository } from '../job.repository';
 
 /**
  * Error thrown for permanent job failures (no retry)
@@ -39,6 +41,7 @@ export class WebhookDeliveryHandler implements JobHandler<WebhookDeliveryPayload
 
   constructor(
     private readonly notificationLogRepo: NotificationLogRepository,
+    private readonly jobRepository: JobRepository,
   ) {}
 
   /**
@@ -58,7 +61,15 @@ export class WebhookDeliveryHandler implements JobHandler<WebhookDeliveryPayload
     // Check cancellation token before HTTP request
     cancellationToken.throwIfCancelled();
 
-    const { webhookUrl, eventType, eventId, payload, recipientPublicKey, correlationId } = job.payload;
+    const {
+      webhookUrl,
+      eventType,
+      eventId,
+      payload,
+      recipientPublicKey,
+      correlationId,
+      signingSecret,
+    } = job.payload;
 
     this.logger.log(
       `Delivering webhook to ${webhookUrl} (eventType: ${eventType}, eventId: ${eventId}, jobId: ${job.id}, correlationId: ${correlationId ?? 'N/A'})`,
@@ -69,6 +80,27 @@ export class WebhookDeliveryHandler implements JobHandler<WebhookDeliveryPayload
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
+      // Build the body once so the signature always covers the exact bytes sent.
+      const timestamp = new Date().toISOString();
+      const body = JSON.stringify({
+        eventType,
+        eventId,
+        recipientPublicKey,
+        payload,
+        timestamp,
+      });
+
+      // HMAC-SHA256 over "{timestamp}.{body}" using the shared canonicalization
+      // so recipients can verify with the same logic as the notifications
+      // webhook provider.
+      const signature = WebhookProvider.signPayload(body, timestamp, signingSecret);
+
+      if (!signature) {
+        this.logger.warn(
+          `No signing secret configured for webhook ${webhookUrl} (eventId: ${eventId}, jobId: ${job.id}) - sending unsigned`,
+        );
+      }
+
       // Send HTTP POST request
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -76,16 +108,12 @@ export class WebhookDeliveryHandler implements JobHandler<WebhookDeliveryPayload
           'Content-Type': 'application/json',
           'X-QuickEx-Event': eventType,
           'X-QuickEx-Event-Id': eventId,
+          'X-QuickEx-Timestamp': timestamp,
+          ...(signature ? { 'X-QuickEx-Signature': signature } : {}),
           'User-Agent': 'QuickEx-Webhook/1.0',
           ...(correlationId ? { 'X-QuickEx-Correlation-Id': correlationId } : {}),
         },
-        body: JSON.stringify({
-          eventType,
-          eventId,
-          recipientPublicKey,
-          payload,
-          timestamp: new Date().toISOString(),
-        }),
+        body,
         signal: controller.signal,
       });
 
@@ -226,17 +254,21 @@ export class WebhookDeliveryHandler implements JobHandler<WebhookDeliveryPayload
 
   /**
    * Handle job failure
-   * 
+   *
    * Logs webhook delivery failure to notification_logs table for audit trail.
    * This is called when the job exhausts all retry attempts and moves to DLQ.
-   * 
+   *
+   * When the delivery was a downstream step of another job (export generation),
+   * the parent job is also marked failed so the failure is visible on the
+   * requester's own job record rather than being reported as a success.
+   *
    * @param job - The failed job
    * @param error - The error that caused the failure
-   * 
+   *
    * **Validates: Requirements 7.5**
    */
   async onFailure(job: Job<WebhookDeliveryPayload>, error: Error): Promise<void> {
-    const { recipientPublicKey, eventType, eventId } = job.payload;
+    const { recipientPublicKey, eventType, eventId, relatedJobId } = job.payload;
 
     this.logger.error(
       `Webhook delivery permanently failed for ${recipientPublicKey} (eventType: ${eventType}, eventId: ${eventId}, jobId: ${job.id}): ${error.message}`,
@@ -254,6 +286,60 @@ export class WebhookDeliveryHandler implements JobHandler<WebhookDeliveryPayload
     } catch (logError) {
       this.logger.error(
         `Failed to log webhook failure to notification_logs (jobId: ${job.id}): ${logError.message}`,
+      );
+    }
+
+    await this.failRelatedJob(relatedJobId, error);
+  }
+
+  /**
+   * Mark the job that requested this delivery as failed.
+   *
+   * A `COMPLETED` parent is transitioned too: the parent reported success
+   * precisely because it enqueued this delivery, so leaving it completed would
+   * report success for a webhook that never landed. Parents already in a
+   * terminal failure state are left alone, and a late failure must never
+   * resurrect a cancelled job.
+   *
+   * All errors are swallowed: failing to annotate the parent job must not turn
+   * an already-handled delivery failure into an unhandled one.
+   */
+  private async failRelatedJob(
+    relatedJobId: string | undefined,
+    error: Error,
+  ): Promise<void> {
+    if (!relatedJobId) {
+      return;
+    }
+
+    try {
+      const parent = await this.jobRepository.findById(relatedJobId);
+
+      if (!parent) {
+        this.logger.warn(
+          `Related job ${relatedJobId} not found; skipping failure propagation`,
+        );
+        return;
+      }
+
+      if (parent.status === JobStatus.FAILED || parent.status === JobStatus.CANCELLED) {
+        this.logger.warn(
+          `Related job ${relatedJobId} is already ${parent.status}; skipping failure propagation`,
+        );
+        return;
+      }
+
+      await this.jobRepository.updateJobStatus(relatedJobId, JobStatus.FAILED, {
+        completedAt: new Date(),
+        failureReason: `Webhook delivery failed: ${error.message}`,
+      });
+
+      this.logger.log(
+        `Marked related job ${relatedJobId} as failed after webhook delivery failure`,
+      );
+    } catch (propagationError) {
+      this.logger.error(
+        `Failed to mark related job ${relatedJobId} as failed: ${propagationError.message}`,
       );
     }
   }

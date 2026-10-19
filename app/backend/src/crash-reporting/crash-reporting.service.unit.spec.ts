@@ -2,6 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CrashReportingService } from './crash-reporting.service';
 import { RedactionService } from './redaction.service';
 import { CrashReportingRepository } from './crash-reporting.repository';
+import { runWithLogScope } from './log-capture.context';
+
+// #1063: log capture is request-scoped, so lines captured outside a scope are
+// dropped. Run every test in its own scope, as LogCaptureMiddleware does for
+// each HTTP request.
+const it = (name: string, fn: () => Promise<unknown> | void): void =>
+  test(name, () => runWithLogScope(fn));
 
 describe('CrashReportingService', () => {
   let service: CrashReportingService;
@@ -320,6 +327,27 @@ describe('CrashReportingService', () => {
     });
   });
 
+  describe('getAllReports', () => {
+    it('should return all crash reports from repository', async () => {
+      const reports = [
+        {
+          id: 'report-1',
+          userId: 'user-123',
+          error: { name: 'Error', message: 'Test error' },
+          logLines: ['Log 1'],
+          timestamp: new Date(),
+          createdAt: new Date(),
+        },
+      ];
+      // Mock the new method in repository (if necessary we can cast to any for this test or add it to mock)
+      (repository as jest.Mocked<CrashReportingRepository> & { getAllCrashReports: jest.Mock }).getAllCrashReports = jest.fn().mockResolvedValue(reports);
+
+      const result = await service.getAllReports(10);
+      expect(result).toEqual(reports);
+      expect((repository as jest.Mocked<CrashReportingRepository> & { getAllCrashReports: jest.Mock }).getAllCrashReports).toHaveBeenCalledWith(10);
+    });
+  });
+
   describe('submitIssueReport', () => {
     it('should redact sensitive details and create crash report', async () => {
       repository.createCrashReport.mockResolvedValue('report-456');
@@ -330,25 +358,23 @@ describe('CrashReportingService', () => {
         errorDetails: `Stack trace showing secret ${secretKey}`,
         environment: 'AppVersion: 1.0.0, OS: iOS',
         route: '/payment',
+        reproductionSteps: `1. Use key ${secretKey}`,
+        attachments: [`image-${secretKey}.png`],
       };
 
       const result = await service.submitIssueReport(dto);
 
       expect(result).toBe('report-456');
-      expect(repository.createCrashReport).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: undefined,
-          error: expect.objectContaining({
-            name: 'UnhandledException',
-            message: expect.not.stringContaining(secretKey),
-            stack: expect.not.stringContaining(secretKey),
-          }),
-          context: expect.objectContaining({
-            environment: 'AppVersion: 1.0.0, OS: iOS',
-            route: '/payment',
-          }),
-        })
-      );
+      
+      const captureCallArg = repository.createCrashReport.mock.calls[0][0];
+      expect(captureCallArg.userId).toBeUndefined();
+      expect(captureCallArg.error.name).toBe('UnhandledException');
+      expect(captureCallArg.error.message).not.toContain(secretKey);
+      expect(captureCallArg.error.stack).not.toContain(secretKey);
+      expect(captureCallArg.context?.environment).toBe('AppVersion: 1.0.0, OS: iOS');
+      expect(captureCallArg.context?.route).toBe('/payment');
+      expect(captureCallArg.context?.reproductionSteps).not.toContain(secretKey);
+      expect(captureCallArg.context?.attachments?.[0]).not.toContain(secretKey);
     });
   });
 });

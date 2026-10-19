@@ -10,6 +10,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DeadLetterQueueMonitorService } from './dead-letter-monitor.service';
 import { JobRepository } from './job.repository';
 import { JobQueueMetricsService } from './job-queue-metrics.service';
+import { SentryService } from '../sentry/sentry.service';
 import { AppConfigService } from '../config';
 import { JobStatus, JobType } from './types';
 
@@ -17,6 +18,7 @@ describe('DeadLetterQueueMonitorService', () => {
   let service: DeadLetterQueueMonitorService;
   let repository: jest.Mocked<JobRepository>;
   let metrics: jest.Mocked<JobQueueMetricsService>;
+  let sentry: jest.Mocked<SentryService>;
 
   const jobTypeCount = Object.values(JobType).length;
 
@@ -32,6 +34,11 @@ describe('DeadLetterQueueMonitorService', () => {
       setDlqAlertActive: jest.fn(),
     };
 
+    const mockSentry = {
+      captureMessage: jest.fn(),
+      captureException: jest.fn(),
+    };
+
     const mockConfig = {
       dlqMonitorEnabled: true,
       dlqAlertDepthThreshold: 50,
@@ -44,12 +51,14 @@ describe('DeadLetterQueueMonitorService', () => {
         { provide: JobRepository, useValue: mockRepository },
         { provide: JobQueueMetricsService, useValue: mockMetrics },
         { provide: AppConfigService, useValue: mockConfig },
+        { provide: SentryService, useValue: mockSentry },
       ],
     }).compile();
 
     service = module.get(DeadLetterQueueMonitorService);
     repository = module.get(JobRepository) as jest.Mocked<JobRepository>;
     metrics = module.get(JobQueueMetricsService) as jest.Mocked<JobQueueMetricsService>;
+    sentry = module.get(SentryService) as jest.Mocked<SentryService>;
   });
 
   describe('checkQueueHealth', () => {
@@ -73,6 +82,7 @@ describe('DeadLetterQueueMonitorService', () => {
           DeadLetterQueueMonitorService,
           { provide: JobRepository, useValue: repository },
           { provide: JobQueueMetricsService, useValue: metrics },
+          { provide: SentryService, useValue: { captureMessage: jest.fn(), captureException: jest.fn() } },
           {
             provide: AppConfigService,
             useValue: {
@@ -193,6 +203,94 @@ describe('DeadLetterQueueMonitorService', () => {
         JobType.RECURRING_PAYMENT,
         'depth',
         false,
+      );
+    });
+
+    it('should report to Sentry with warning severity when an alert transitions to firing', async () => {
+      repository.countByTypeAndStatus.mockImplementation(async (type: JobType) =>
+        type === JobType.WEBHOOK_DELIVERY ? 50 : 0,
+      );
+
+      await service.checkQueueHealth();
+
+      expect(sentry.captureMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Dead letter queue alert firing for webhook_delivery (depth)'),
+        'warning',
+        expect.objectContaining({
+          type: JobType.WEBHOOK_DELIVERY,
+          reason: 'depth',
+          dlqDepth: 50,
+          depthThreshold: 50,
+        }),
+      );
+    });
+
+    it('should report to Sentry with info severity when an alert transitions from firing to clear', async () => {
+      repository.countByTypeAndStatus.mockImplementation(async (type: JobType) =>
+        type === JobType.WEBHOOK_DELIVERY ? 50 : 0,
+      );
+      await service.checkQueueHealth();
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(1);
+
+      repository.countByTypeAndStatus.mockResolvedValue(0);
+      await service.checkQueueHealth();
+
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(2);
+      expect(sentry.captureMessage).toHaveBeenLastCalledWith(
+        expect.stringContaining('Dead letter queue alert cleared for webhook_delivery (depth)'),
+        'info',
+        expect.objectContaining({
+          type: JobType.WEBHOOK_DELIVERY,
+          reason: 'depth',
+          dlqDepth: 0,
+          depthThreshold: 50,
+        }),
+      );
+    });
+
+    it('should invoke Sentry exactly once per firing transition, not once per cron tick', async () => {
+      repository.countByTypeAndStatus.mockImplementation(async (type: JobType) =>
+        type === JobType.WEBHOOK_DELIVERY ? 50 : 0,
+      );
+
+      // Tick 1: alert transitions to firing -> invokes Sentry
+      await service.checkQueueHealth();
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(1);
+
+      // Tick 2: alert remains firing -> should NOT invoke Sentry again
+      await service.checkQueueHealth();
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(1);
+
+      // Tick 3: alert still firing -> should NOT invoke Sentry again
+      await service.checkQueueHealth();
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(1);
+
+      // Transition to clear -> invokes Sentry once for clear
+      repository.countByTypeAndStatus.mockResolvedValue(0);
+      await service.checkQueueHealth();
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(2);
+
+      // Remains clear -> should NOT invoke Sentry again
+      await service.checkQueueHealth();
+      expect(sentry.captureMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('should ensure metrics gauges are updated alongside Sentry notifications', async () => {
+      repository.countByTypeAndStatus.mockImplementation(async (type: JobType) =>
+        type === JobType.WEBHOOK_DELIVERY ? 50 : 0,
+      );
+
+      await service.checkQueueHealth();
+
+      expect(metrics.setDlqAlertActive).toHaveBeenCalledWith(
+        JobType.WEBHOOK_DELIVERY,
+        'depth',
+        true,
+      );
+      expect(sentry.captureMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Dead letter queue alert firing'),
+        'warning',
+        expect.anything(),
       );
     });
   });

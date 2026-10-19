@@ -11,12 +11,12 @@ import { useNotifications } from "./NotificationContext";
 
 let playSoundOnce: (() => Promise<void>) | undefined;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+   
   const { Audio } = require("expo-av");
 
   const localSound = (() => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+       
       return require("../../assets/sounds/notification.mp3");
     } catch {
       return undefined;

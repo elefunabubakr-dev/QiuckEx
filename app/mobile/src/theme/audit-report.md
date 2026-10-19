@@ -6,7 +6,7 @@
 | Payment | ✅ Complete | 7 hardcoded colors, contrast issues in dark mode | ✅ |
 | Receipt | ✅ Complete | 5 hardcoded colors, QR border invisible in dark | ✅ |
 | Settings | ✅ Complete | 4 hardcoded colors, toggle track wrong color | ✅ |
-| Notification | ✅ Complete | 6 hardcoded colors, unread highlight too subtle | ✅ |
+| Notification | 🗑️ Removed | Deprecated orphaned component removed (#1020) | N/A |
 
 ## Hardcoded Colors Replaced
 

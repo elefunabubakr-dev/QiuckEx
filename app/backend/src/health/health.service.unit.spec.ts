@@ -14,10 +14,11 @@ describe("HealthService", () => {
     supabaseAnonKey: string;
     network: string;
     isPaymentSigningConfigured: boolean;
+    ingestionLagThresholdSeconds: number;
   };
   let jobQueueService: Record<string, jest.Mock>;
   let jobRepository: { listJobs: jest.Mock };
-  let cursorRepository: { getCursor: jest.Mock };
+  let cursorRepository: { getLatestContractCursor: jest.Mock };
   let sorobanRpc: { getNetworkPassphrase: jest.Mock };
 
   function healthySupabaseClient() {
@@ -73,10 +74,13 @@ describe("HealthService", () => {
       supabaseAnonKey: "anon-key",
       network: "testnet",
       isPaymentSigningConfigured: false,
+      ingestionLagThresholdSeconds: 300,
     };
     jobQueueService = {};
     jobRepository = { listJobs: jest.fn().mockResolvedValue([]) };
-    cursorRepository = { getCursor: jest.fn().mockResolvedValue(null) };
+    cursorRepository = {
+      getLatestContractCursor: jest.fn().mockResolvedValue(null),
+    };
     sorobanRpc = {
       getNetworkPassphrase: jest
         .fn()
@@ -110,7 +114,7 @@ describe("HealthService", () => {
       expect(horizon.getBaseUrl).not.toHaveBeenCalled();
       expect(sorobanRpc.getNetworkPassphrase).not.toHaveBeenCalled();
       expect(jobRepository.listJobs).not.toHaveBeenCalled();
-      expect(cursorRepository.getCursor).not.toHaveBeenCalled();
+      expect(cursorRepository.getLatestContractCursor).not.toHaveBeenCalled();
       expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
@@ -235,6 +239,252 @@ describe("HealthService", () => {
 
       const horizonCheck = result.checks.find((c) => c.name === "horizon");
       expect(horizonCheck?.status).toBe("degraded");
+    });
+  });
+
+  describe("ingestion lag (checkIngestionLag)", () => {
+    const NOW = new Date("2026-01-01T00:00:00.000Z");
+
+    function cursorUpdatedAgo(seconds: number) {
+      return {
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: new Date(NOW.getTime() - seconds * 1000).toISOString(),
+      };
+    }
+
+    beforeEach(() => {
+      jest.setSystemTime(NOW);
+    });
+
+    it("reports the real lag in seconds for a recently updated cursor", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue(
+        cursorUpdatedAgo(30),
+      );
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("up");
+      expect(result.lagSeconds).toBe(30);
+      expect(result.lastSuccess).toBe(cursorUpdatedAgo(30).updated_at);
+    });
+
+    it("reports the real lag and a degraded status for a stale cursor", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue(
+        cursorUpdatedAgo(900),
+      );
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("degraded");
+      expect(result.lagSeconds).toBe(900);
+      expect(result.details).toContain("900s");
+      expect(result.details).toContain("300s");
+    });
+
+    it("stays up when the lag is exactly at the threshold", async () => {
+      // Mirrors IndexerLagService, which flags lag only when it strictly
+      // exceeds the threshold.
+      cursorRepository.getLatestContractCursor.mockResolvedValue(
+        cursorUpdatedAgo(300),
+      );
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("up");
+      expect(result.lagSeconds).toBe(300);
+    });
+
+    it("degrades once the lag exceeds the threshold by one second", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue(
+        cursorUpdatedAgo(301),
+      );
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("degraded");
+      expect(result.lagSeconds).toBe(301);
+    });
+
+    it("honours a custom threshold", async () => {
+      config.ingestionLagThresholdSeconds = 60;
+      cursorRepository.getLatestContractCursor.mockResolvedValue(
+        cursorUpdatedAgo(120),
+      );
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("degraded");
+      expect(result.lagSeconds).toBe(120);
+      expect(result.details).toContain("60s");
+    });
+
+    it("keeps the no-cursor branch unchanged", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue(null);
+
+      const result = await service.checkIngestionLag();
+
+      expect(result).toEqual({
+        status: "up",
+        lagSeconds: 0,
+        details: "No ingestion cursor found (service may not be active)",
+        lastSuccess: NOW.toISOString(),
+      });
+    });
+
+    it("reports down when the cursor read throws", async () => {
+      cursorRepository.getLatestContractCursor.mockRejectedValue(
+        new Error("db unreachable"),
+      );
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("down");
+      expect(result.lagSeconds).toBeUndefined();
+      expect(result.details).toBe("db unreachable");
+    });
+
+    it("reports down when the cursor timestamp cannot be parsed", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: "not-a-timestamp",
+      });
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("down");
+      expect(result.details).toContain("invalid updated_at");
+    });
+
+    it("clamps a future cursor timestamp to zero lag instead of going negative", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: new Date(NOW.getTime() + 60_000).toISOString(),
+      });
+
+      const result = await service.checkIngestionLag();
+
+      expect(result.status).toBe("up");
+      expect(result.lagSeconds).toBe(0);
+    });
+
+    it("uses the newest cursor rather than an exact literal stream id", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue(
+        cursorUpdatedAgo(10),
+      );
+
+      await service.checkIngestionLag();
+
+      expect(cursorRepository.getLatestContractCursor).toHaveBeenCalledTimes(
+        1,
+      );
+    });
+  });
+
+  describe("ingestion lag is surfaced by the readiness endpoint", () => {
+    const NOW = new Date("2026-01-01T00:00:00.000Z");
+
+    beforeEach(() => {
+      jest.setSystemTime(NOW);
+    });
+
+    it("stays ready but reports degraded when the cursor is stale", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: new Date(NOW.getTime() - 900_000).toISOString(),
+      });
+
+      const result = await service.getReadinessStatus();
+
+      expect(result.ready).toBe(true);
+      expect(result.degraded).toBe(true);
+
+      const ingestionCheck = result.checks.find((c) => c.name === "ingestion");
+      expect(ingestionCheck?.status).toBe("degraded");
+      expect(ingestionCheck?.lagSeconds).toBe(900);
+    });
+
+    it("does not report degraded when the cursor is fresh", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: new Date(NOW.getTime() - 1_000).toISOString(),
+      });
+
+      const result = await service.getReadinessStatus();
+
+      expect(result.ready).toBe(true);
+      expect(result.degraded).toBe(false);
+    });
+  });
+
+  describe("public status (getPublicStatus)", () => {
+    const NOW = new Date("2026-01-01T00:00:00.000Z");
+
+    beforeEach(() => {
+      jest.setSystemTime(NOW);
+    });
+
+    it("reports the last processed ledger from the newest contract cursor", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "12345-3",
+        ledger_sequence: 12345,
+        updated_at: NOW.toISOString(),
+      });
+
+      const result = await service.getPublicStatus();
+
+      expect(result.lastLedger).toBe(12345);
+      expect(result.status).toBe("operational");
+    });
+
+    it("defaults lastLedger to 0 when no cursor exists", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue(null);
+
+      const result = await service.getPublicStatus();
+
+      expect(result.lastLedger).toBe(0);
+      expect(result.status).toBe("operational");
+    });
+
+    it("reports a degraded ingestion component when the cursor is stale", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: new Date(NOW.getTime() - 900_000).toISOString(),
+      });
+
+      const result = await service.getPublicStatus();
+
+      expect(result.status).toBe("degraded");
+
+      const ingestion = result.components.find((c) => c.name === "ingestion");
+      expect(ingestion?.status).toBe("degraded");
+    });
+
+    it("does not leak ingestion lag details on the public status page", async () => {
+      cursorRepository.getLatestContractCursor.mockResolvedValue({
+        id: "contract:CTEST",
+        paging_token: "99-5",
+        ledger_sequence: 42,
+        updated_at: new Date(NOW.getTime() - 900_000).toISOString(),
+      });
+
+      const result = await service.getPublicStatus();
+
+      const ingestion = result.components.find((c) => c.name === "ingestion");
+      expect(ingestion).not.toHaveProperty("detail");
+      expect(JSON.stringify(result)).not.toContain("900s");
     });
   });
 });

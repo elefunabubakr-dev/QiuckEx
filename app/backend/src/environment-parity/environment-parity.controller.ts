@@ -4,6 +4,7 @@ import {
   EnvironmentParityService,
   ParityCheckResult,
 } from "./environment-parity.service";
+import { RateLimitTier } from "../auth/decorators/rate-limit-group.decorator";
 
 interface ParityStatusResponse {
   success: boolean;
@@ -28,13 +29,17 @@ interface HealthResponse {
 }
 
 @ApiTags("Environment Parity")
-@Controller("api/environment-parity")
+// Canonical prefix is an unprefixed resource path — see docs/ROUTING-CONVENTIONS.md.
+// The former `api/environment-parity` prefix was removed: nothing called it over HTTP
+// (rc-validation reaches this module through EnvironmentParityService, not the router).
+@Controller("environment-parity")
 export class EnvironmentParityController {
   private readonly logger = new Logger(EnvironmentParityController.name);
 
   constructor(private readonly parityService: EnvironmentParityService) {}
 
   @Get("status")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "Get environment parity check status" })
   @ApiResponse({ status: 200, description: "Returns parity check results" })
   getParityStatus(): ParityStatusResponse {
@@ -55,6 +60,7 @@ export class EnvironmentParityController {
   }
 
   @Get("health")
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: "Quick health check for environment parity" })
   @ApiResponse({ status: 200, description: "Returns health status" })
   getHealth(): HealthResponse {

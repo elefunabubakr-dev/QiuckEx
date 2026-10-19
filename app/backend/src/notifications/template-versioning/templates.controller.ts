@@ -26,6 +26,7 @@ import {
   PreviewRenderResult,
   PromoteToActiveDto,
 } from './template.types';
+import { RateLimitTier } from '../../auth/decorators/rate-limit-group.decorator';
 
 @ApiTags('Notification Templates')
 @ApiBearerAuth()
@@ -38,6 +39,7 @@ export class TemplatesController {
   ) {}
 
   @Get()
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: 'List all notification templates with their active version' })
   @ApiResponse({ status: 200, description: 'List of templates returned successfully' })
   @RequireScopes('admin')
@@ -46,6 +48,7 @@ export class TemplatesController {
   }
 
   @Get(':templateId/versions')
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: 'Get all versions for a specific template' })
   @ApiResponse({ status: 200, description: 'Versions returned successfully' })
   @RequireScopes('admin')
@@ -54,6 +57,7 @@ export class TemplatesController {
   }
 
   @Get('versions/:versionId')
+  @RateLimitTier("public-read")
   @ApiOperation({ summary: 'Get a specific template version by ID' })
   @ApiResponse({ status: 200, description: 'Version returned successfully' })
   @ApiResponse({ status: 404, description: 'Version not found' })
@@ -67,6 +71,7 @@ export class TemplatesController {
   }
 
   @Post()
+  @RateLimitTier("mutation")
   @ApiOperation({ summary: 'Create a new base template with initial version' })
   @ApiResponse({ status: 201, description: 'Template created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid template data' })
@@ -80,6 +85,7 @@ export class TemplatesController {
   }
 
   @Post(':templateId/versions')
+  @RateLimitTier("mutation")
   @ApiOperation({ summary: 'Create a new draft version for an existing template' })
   @ApiResponse({ status: 201, description: 'Draft version created successfully' })
   @ApiResponse({ status: 404, description: 'Template not found' })
@@ -96,6 +102,7 @@ export class TemplatesController {
   }
 
   @Put('versions/:versionId/promote-to-active')
+  @RateLimitTier("mutation")
   @ApiOperation({ summary: 'Promote a draft version to active (archives previous active version)' })
   @ApiResponse({ status: 200, description: 'Version promoted successfully' })
   @ApiResponse({ status: 400, description: 'Failed to promote version' })
@@ -113,6 +120,7 @@ export class TemplatesController {
   }
 
   @Post('preview')
+  @RateLimitTier("mutation")
   @ApiOperation({ summary: 'Preview template rendering with sample data' })
   @ApiResponse({ status: 200, description: 'Preview rendered successfully' })
   @RequireScopes('admin')
@@ -121,6 +129,7 @@ export class TemplatesController {
   }
 
   @Post('versions/:versionId/preview')
+  @RateLimitTier("mutation")
   @ApiOperation({ summary: 'Preview a specific saved version with sample data' })
   @ApiResponse({ status: 200, description: 'Preview rendered successfully' })
   @ApiResponse({ status: 404, description: 'Version not found' })

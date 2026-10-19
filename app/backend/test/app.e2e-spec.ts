@@ -12,6 +12,9 @@ import { AppConfigService } from "../src/config";
 import { AppModule } from "../src/app.module";
 import { UsernamesService } from "../src/usernames/usernames.service";
 import { HealthService } from "../src/health/health.service";
+import { SupabaseService } from "../src/supabase/supabase.service";
+import { OutboxRepository } from "../src/events/outbox/outbox.repository";
+import { IdempotencyStore } from "../src/common/idempotency/idempotency-store.service";
 import { mapValidationErrors } from "../src/common/utils/validation-error.mapper";
 import { ApiKeyGuard } from "../src/auth/guards/api-key.guard";
 import { CustomThrottlerGuard } from "../src/auth/guards/custom-throttler.guard";
@@ -32,6 +35,38 @@ describe("App endpoints", () => {
       .useValue({
         create: jest.fn().mockResolvedValue({ ok: true }),
         listByPublicKey: jest.fn().mockResolvedValue([]),
+      })
+      .overrideProvider(OutboxRepository)
+      .useValue({
+        stage: jest.fn(),
+        findPending: jest.fn(),
+        markDispatched: jest.fn(),
+        recordAttempt: jest.fn(),
+        getDepth: jest.fn(),
+        getLagSeconds: jest.fn(),
+      })
+      .overrideProvider(SupabaseService)
+      .useValue({
+        getClient: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnThis(),
+          insert: jest.fn().mockResolvedValue({ data: {}, error: null }),
+          single: jest.fn().mockResolvedValue({ data: {}, error: null }),
+          eq: jest.fn().mockReturnThis(),
+          lte: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockReturnThis,
+          select: jest.fn().mockResolvedValue({ data: {}, error: null }),
+        }),
+      })
+      .overrideProvider(IdempotencyStore)
+      .useValue({
+        begin: jest.fn(),
+        complete: jest.fn(),
+        release: jest.fn(),
+        peek: jest.fn(),
+        sweepExpired: jest.fn(),
+        retentionMs: 24 * 60 * 60 * 1000,
+        size: jest.fn(),
       })
       .overrideProvider(HealthService)
       .useValue({

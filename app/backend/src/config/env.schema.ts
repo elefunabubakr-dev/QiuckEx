@@ -64,6 +64,23 @@ export const envSchema = Joi.object({
     .optional()
     .description("Comma-separated list of pre-allowed token addresses"),
 
+  ANCHOR_DIRECTORY_JSON: Joi.string()
+    .empty("")
+    .optional()
+    .description(
+      "JSON array of configured anchor domains and supported country codes",
+    ),
+
+  ANCHOR_WEBHOOK_SECRETS: Joi.string()
+    .empty("")
+    .optional()
+    .description("JSON mapping of anchor domains to their webhook secrets"),
+
+  ANCHOR_WEBHOOK_SECRET: Joi.string()
+    .empty("")
+    .optional()
+    .description("Default webhook secret for anchors without a specific secret"),
+
   STELLAR_NETWORK_PASSPHRASE: Joi.string()
     .empty("")
     .optional()
@@ -124,6 +141,20 @@ export const envSchema = Joi.object({
     .max(10)
     .default(3)
     .description("Max retry attempts for transient Soroban RPC failures"),
+
+  HORIZON_REQUEST_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(10000)
+    .description("Timeout in milliseconds for outbound Horizon requests made by HorizonService"),
+
+  SCAM_ALERTS_FETCH_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(100)
+    .default(3000)
+    .description(
+      "Timeout in milliseconds for scam-alerts external blocklist fetches",
+    ),
 
   STELLAR_EXPLORER_URL: Joi.string()
     .uri({ scheme: ["http", "https"] })
@@ -286,6 +317,17 @@ export const envSchema = Joi.object({
   RECONCILIATION_ENABLED: Joi.boolean()
     .default(true)
     .description("Enable the scheduled reconciliation worker (BE-124)"),
+
+  // Optional module selection (#1061) — see config/optional-modules.ts
+  ENABLE_RECONCILIATION_MODULE: Joi.boolean()
+    .default(true)
+    .description("Import ReconciliationModule (cannot be false yet: other modules import it)"),
+  ENABLE_NOTIFICATIONS_MODULE: Joi.boolean()
+    .default(true)
+    .description("Import NotificationsModule (cannot be false yet: other modules import it)"),
+  ENABLE_DEVELOPER_MODULE: Joi.boolean()
+    .default(true)
+    .description("Import DeveloperModule (developer portal endpoints)"),
   RECONCILIATION_CRON_EXPRESSION: Joi.string()
     .default("*/5 * * * *")
     .description("Cron expression for scheduled reconciliation runs (BE-124)"),
@@ -384,10 +426,94 @@ export const envSchema = Joi.object({
     .default(60000)
     .description("Webhook traffic sustained window in milliseconds"),
 
+  RATE_LIMIT_TIER_PUBLIC_READ_BURST_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(20)
+    .description("Tier: public-read burst request limit"),
+  RATE_LIMIT_TIER_PUBLIC_READ_BURST_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(10000)
+    .description("Tier: public-read burst window in milliseconds"),
+  RATE_LIMIT_TIER_PUBLIC_READ_SUSTAINED_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(60)
+    .description("Tier: public-read sustained request limit"),
+  RATE_LIMIT_TIER_PUBLIC_READ_SUSTAINED_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(60000)
+    .description("Tier: public-read sustained window in milliseconds"),
+
+  RATE_LIMIT_TIER_SEARCH_BURST_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(10)
+    .description("Tier: search burst request limit"),
+  RATE_LIMIT_TIER_SEARCH_BURST_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(10000)
+    .description("Tier: search burst window in milliseconds"),
+  RATE_LIMIT_TIER_SEARCH_SUSTAINED_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(30)
+    .description("Tier: search sustained request limit"),
+  RATE_LIMIT_TIER_SEARCH_SUSTAINED_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(60000)
+    .description("Tier: search sustained window in milliseconds"),
+
+  RATE_LIMIT_TIER_MUTATION_BURST_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(15)
+    .description("Tier: mutation burst request limit"),
+  RATE_LIMIT_TIER_MUTATION_BURST_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(10000)
+    .description("Tier: mutation burst window in milliseconds"),
+  RATE_LIMIT_TIER_MUTATION_SUSTAINED_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(45)
+    .description("Tier: mutation sustained request limit"),
+  RATE_LIMIT_TIER_MUTATION_SUSTAINED_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(60000)
+    .description("Tier: mutation sustained window in milliseconds"),
+
+  RATE_LIMIT_TIER_EXPORT_BURST_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(3)
+    .description("Tier: export burst request limit"),
+  RATE_LIMIT_TIER_EXPORT_BURST_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(10000)
+    .description("Tier: export burst window in milliseconds"),
+  RATE_LIMIT_TIER_EXPORT_SUSTAINED_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(10)
+    .description("Tier: export sustained request limit"),
+  RATE_LIMIT_TIER_EXPORT_SUSTAINED_TTL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(60000)
+    .description("Tier: export sustained window in milliseconds"),
+
   RATE_LIMIT_KEY_ORDER: Joi.string()
-    .default("user_id,api_key,ip")
+    .default("api_key,user_id,ip")
     .description(
-      "Preferred key order for rate-limit identity. Allowed values: user_id,api_key,ip",
+      "Preferred key order for rate-limit identity. Allowed values: api_key,user_id,ip",
     ),
 
   // ---------------------------------------------------------------------------
@@ -485,6 +611,15 @@ export const envSchema = Joi.object({
   INDEXER_LAG_GUARD_OVERRIDE: Joi.boolean()
     .default(false)
     .description("Admin override to disable lag guard temporarily (for emergencies)"),
+
+  // ── Ingestion Lag Health Guard ─────────────────────────────────────────────
+  INGESTION_LAG_THRESHOLD_SECONDS: Joi.number()
+    .integer()
+    .min(1)
+    .default(300)
+    .description(
+      "Maximum allowed age of the newest ingestion cursor in seconds before /ready reports degraded",
+    ),
 
   // ── Dead Letter Queue Monitor ────────────────────────────────────────────
   DLQ_MONITOR_ENABLED: Joi.boolean()
@@ -641,6 +776,15 @@ export const envSchema = Joi.object({
   OTEL_DEBUG: Joi.boolean()
     .default(false)
     .description("Enable verbose OpenTelemetry SDK diagnostic logging"),
+
+  // ---------------------------------------------------------------------------
+  // Stealth privacy debug endpoints (#1215; disabled by default, non-prod only)
+  // ---------------------------------------------------------------------------
+  PRIVACY_DEBUG_ENDPOINTS_ENABLED: Joi.boolean()
+    .default(false)
+    .description(
+      "Explicit opt-in flag to enable local/dev-only stealth privacy debug endpoints (/privacy/derive-shared-secret and /privacy/decrypt-recipient). Ignored and blocked in production.",
+    ),
 });
 
 /**
@@ -658,6 +802,9 @@ export interface EnvConfig {
   MOBILE_RELEASE_NOTES: string;
   ROUTER_CONTRACT_ID?: string;
   ALLOWED_TOKENS?: string;
+  ANCHOR_DIRECTORY_JSON?: string;
+  ANCHOR_WEBHOOK_SECRETS?: string;
+  ANCHOR_WEBHOOK_SECRET?: string;
   STELLAR_NETWORK_PASSPHRASE?: string;
   NETWORK: "testnet" | "mainnet";
   STELLAR_NETWORK?: "testnet" | "mainnet";
@@ -669,6 +816,8 @@ export interface EnvConfig {
   SOROBAN_RPC_URLS?: string;
   SOROBAN_RPC_TIMEOUT_MS: number;
   SOROBAN_RPC_MAX_RETRIES: number;
+  HORIZON_REQUEST_TIMEOUT_MS: number;
+  SCAM_ALERTS_FETCH_TIMEOUT_MS: number;
   STELLAR_EXPLORER_URL?: string;
   STELLAR_SECRET_KEY?: string;
   STELLAR_PUBLIC_KEY?: string;
@@ -691,6 +840,9 @@ export interface EnvConfig {
   EXPO_ACCESS_TOKEN?: string;
   RECONCILIATION_BATCH_SIZE: number;
   RECONCILIATION_ENABLED: boolean;
+  ENABLE_RECONCILIATION_MODULE: boolean;
+  ENABLE_NOTIFICATIONS_MODULE: boolean;
+  ENABLE_DEVELOPER_MODULE: boolean;
   RECONCILIATION_CRON_EXPRESSION: string;
   RECONCILIATION_DRIFT_COUNT_THRESHOLD: number;
   RECONCILIATION_DRIFT_AMOUNT_THRESHOLD_STROOPS: string;
@@ -708,6 +860,22 @@ export interface EnvConfig {
   RATE_LIMIT_WEBHOOKS_BURST_TTL_MS: number;
   RATE_LIMIT_WEBHOOKS_SUSTAINED_LIMIT: number;
   RATE_LIMIT_WEBHOOKS_SUSTAINED_TTL_MS: number;
+  RATE_LIMIT_TIER_PUBLIC_READ_BURST_LIMIT: number;
+  RATE_LIMIT_TIER_PUBLIC_READ_BURST_TTL_MS: number;
+  RATE_LIMIT_TIER_PUBLIC_READ_SUSTAINED_LIMIT: number;
+  RATE_LIMIT_TIER_PUBLIC_READ_SUSTAINED_TTL_MS: number;
+  RATE_LIMIT_TIER_SEARCH_BURST_LIMIT: number;
+  RATE_LIMIT_TIER_SEARCH_BURST_TTL_MS: number;
+  RATE_LIMIT_TIER_SEARCH_SUSTAINED_LIMIT: number;
+  RATE_LIMIT_TIER_SEARCH_SUSTAINED_TTL_MS: number;
+  RATE_LIMIT_TIER_MUTATION_BURST_LIMIT: number;
+  RATE_LIMIT_TIER_MUTATION_BURST_TTL_MS: number;
+  RATE_LIMIT_TIER_MUTATION_SUSTAINED_LIMIT: number;
+  RATE_LIMIT_TIER_MUTATION_SUSTAINED_TTL_MS: number;
+  RATE_LIMIT_TIER_EXPORT_BURST_LIMIT: number;
+  RATE_LIMIT_TIER_EXPORT_BURST_TTL_MS: number;
+  RATE_LIMIT_TIER_EXPORT_SUSTAINED_LIMIT: number;
+  RATE_LIMIT_TIER_EXPORT_SUSTAINED_TTL_MS: number;
   RATE_LIMIT_KEY_ORDER: string;
   SENTRY_DSN?: string;
   SENTRY_ENVIRONMENT?: string;
@@ -724,6 +892,7 @@ export interface EnvConfig {
   INDEXER_LAG_THRESHOLD_LEDGERS: number;
   INDEXER_LAG_GUARD_ENABLED: boolean;
   INDEXER_LAG_GUARD_OVERRIDE: boolean;
+  INGESTION_LAG_THRESHOLD_SECONDS: number;
   DLQ_MONITOR_ENABLED: boolean;
   DLQ_ALERT_DEPTH_THRESHOLD: number;
   DLQ_ALERT_AGE_THRESHOLD_MS: number;
@@ -748,4 +917,5 @@ export interface EnvConfig {
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?: string;
   OTEL_TRACE_SAMPLE_RATE: number;
   OTEL_DEBUG: boolean;
+  PRIVACY_DEBUG_ENDPOINTS_ENABLED: boolean;
 }

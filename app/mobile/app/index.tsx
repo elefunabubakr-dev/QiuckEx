@@ -112,10 +112,12 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.buttonGroup}>
+          <NavButton href="/marketplace" label="Marketplace" />
           <NavButton href="/scan-to-pay" label={t("scanToPay")} />
           <NavButton href="/wallet-connect" label={t("connectWallet")} />
           <NavButton href="/quick-receive" label={t("quickReceive")} />
           <NavButton href="/contacts" label={t("contacts")} />
+          <NavButton href="/analytics" label={t("analytics")} />
           <NavButton href="/settings" label={t("settings")} secondary />
           <NavButton href="/security" label={t("securitySettings")} secondary />
         </View>

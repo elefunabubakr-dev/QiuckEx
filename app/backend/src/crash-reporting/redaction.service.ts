@@ -8,6 +8,13 @@ import { Injectable } from '@nestjs/common';
 export class RedactionService {
   // Patterns for sensitive data that should be redacted
   private readonly sensitivePatterns = [
+    // PEM-encoded private keys (#1215)
+    {
+      pattern:
+        /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gi,
+      replacement: '[REDACTED_PRIVATE_KEY]',
+    },
+
     // Stellar keys
     { pattern: /G[A-Z0-9]{55}/gi, replacement: '[REDACTED_PUBLIC_KEY]' },
     { pattern: /S[A-Z0-9]{55}/gi, replacement: '[REDACTED_SECRET_KEY]' },
